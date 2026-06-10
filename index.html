@@ -4195,12 +4195,26 @@ async function buscarRuta() {
     resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Geocodificando origen y destino...</div>`;
 
     try {
-        // 1. Geocodificar
-        const [orig, dest] = await Promise.all([geocode(origen), geocode(destino)]);
+        // 1. Usar coordenadas guardadas o geocodificar
+        const origenInp2  = document.getElementById('r_origen');
+        const destinoInp2 = document.getElementById('r_destino');
+        let orig, dest;
+        if (origenInp2?.dataset?.lat && origenInp2?.dataset?.lon) {
+            orig = { lat: parseFloat(origenInp2.dataset.lat), lon: parseFloat(origenInp2.dataset.lon),
+                     name: origenInp2.dataset.resolvedName || origenInp2.value || 'Mi posición' };
+        } else {
+            orig = await geocode(origen);
+        }
+        if (destinoInp2?.dataset?.lat && destinoInp2?.dataset?.lon) {
+            dest = { lat: parseFloat(destinoInp2.dataset.lat), lon: parseFloat(destinoInp2.dataset.lon),
+                     name: destinoInp2.dataset.resolvedName || destinoInp2.value };
+        } else {
+            dest = await geocode(destino);
+        }
 
         const origenHint = document.getElementById('origen-hint');
         const destinoHint = document.getElementById('destino-hint');
-        if (origenHint && !origenHint.innerHTML) origenHint.innerHTML = `<b>✓</b> ${orig.name}`;
+        if (origenHint) origenHint.innerHTML = `<b>✓</b> ${orig.name}`;
         if (destinoHint) destinoHint.innerHTML = `<b>✓</b> ${dest.name}`;
 
         resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Calculando ruta por carretera...</div>`;
@@ -4273,28 +4287,39 @@ async function buscarRuta() {
                 ) + `</div>`;
         }
 
-        // Mostrar resultados directamente (no hay tabs)
-        resEl.innerHTML = routeInfoHtml + chipsHtml;
+        // Mostrar route-map ANTES de renderizar (Leaflet necesita dimensiones reales)
+        mostrarRouteOverlay();
 
-        // Mostrar botones de acción (guardar + iniciar navegación)
-        const accionesEl = document.getElementById('viaje-acciones');
-        if (accionesEl) accionesEl.style.display = 'flex';
+        // Mostrar barra de info de la ruta
+        resEl.innerHTML = routeInfoHtml;
 
-        // Cargar radares de velocidad en paralelo (no bloquea el resultado)
-        cargarRadares(coords, distKm).then(radares => {
-            if (radares.length) {
-                mostrarRadaresEnMapa(radares);
-                mostrarToast(`📷 ${radares.length} radar${radares.length !== 1 ? 'es' : ''} encontrado${radares.length !== 1 ? 's' : ''} en la ruta`, 3000);
+        // Render map AHORA que route-map ya es visible
+        setTimeout(() => {
+            renderMap();
+
+            // Auto-planificar con cargadores si hay estaciones
+            if (estaciones.length > 0) {
+                setTimeout(() => {
+                    planificarViajeRuta();
+                    // Mostrar lista de cargadores colapsable
+                    const tripEl2 = document.getElementById('trip-result');
+                    const existente = tripEl2?.innerHTML || '';
+                    const chipsSection = `<div class="section-card" style="margin-top:12px">
+                        <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
+                            <div class="section-icon" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25)">⚡</div>
+                            <div class="section-title">Ver cargadores en ruta (${estaciones.length})</div>
+                        </div>
+                        <div class="section-body collapsed">${chipsHtml}</div>
+                    </div>`;
+                    if (tripEl2) tripEl2.innerHTML = chipsSection + existente.replace(/<div class="section-card".*cargadores en ruta.*$/s,'');
+                }, 300);
             }
+        }, 120);
+
+        // Radares en paralelo
+        cargarRadares(coords, distKm).then(radares => {
+            if (radares.length) mostrarRadaresEnMapa(radares);
         });
-
-        // Guardar datos para planificación (coords available now)
-        if (!window._rutaData) window._rutaData = { estaciones, distKm, orig: orig.name, dest: dest.name, coords };
-
-        // Render map after DOM update
-        if (estaciones.length > 0) {
-            setTimeout(() => renderMap(), 100);
-        }
 
     } catch(e) {
         resEl.innerHTML = `<div class="loading-msg" style="color:#f87171">⚠ ${e.message}</div>`;
@@ -4424,6 +4449,10 @@ function planificarViajeRuta() {
 
     // Sobreescribir tramosIniciales con los que tienen lat/lon para dibujarZonaCirculos
     if (window._rutaData) window._rutaData.tramosIniciales = tramos;
+
+    // Mostrar botones Guardar + Iniciar Navegación
+    const accionesEl = document.getElementById('viaje-acciones');
+    if (accionesEl) accionesEl.style.display = 'flex';
 
     document.getElementById('trip-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -5069,14 +5098,14 @@ async function trazarRutaCiudad() {
         };
         _navRadares = [];
 
-        resEl.innerHTML = `
-            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;font-family:'DM Mono',monospace;font-size:12px;line-height:1.9">
-                <b style="color:var(--text);font-family:'Nunito Sans',sans-serif;font-size:13px">🏙 Ruta ciudad</b><br>
-                📍 ${orig.name.split(',')[0]} → ${dest.name.split(',')[0]}<br>
-                🛣 ${distKm} km &nbsp;·&nbsp; ⏱ ~${tiempoStr} &nbsp;·&nbsp; 🔀 ${pasos.length} instrucciones
+        // Viaje corto: solo mostrar botones Guardar + Iniciar Navegación
+        if (resEl) resEl.innerHTML = `
+            <div style="background:rgba(0,229,255,0.08);border:1px solid var(--accent);border-radius:8px;padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px">
+                ✅ <b style="color:var(--accent)">${distKm} km</b> · ~${tiempoStr} · alcanzás sin cargar
             </div>`;
 
-        setTimeout(() => renderMap(), 100);
+        mostrarRouteOverlay(); // mostrar route-map antes de Leaflet
+        setTimeout(() => renderMap(), 120);
 
         cargarRadares(coords, distKm).then(r => {
             if (r.length) mostrarRadaresEnMapa(r);
