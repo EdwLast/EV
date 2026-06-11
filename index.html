@@ -2687,9 +2687,13 @@ async function buscarCargadoresCercanos() {
         const defaultLat = _lastGPS?.lat || -34.9011;
         const defaultLon = _lastGPS?.lon || -56.1645;
         renderCityMapBase(defaultLat, defaultLon);
-        // Mostrar cargadores UTE estáticos de inmediato
-        const estaticos = obtenerCargadoresEstaticosUTE(defaultLat, defaultLon, 50);
-        if (estaticos.length) agregarMarcadoresCiudad(estaticos);
+        // Mostrar cargadores UTE estáticos de inmediato (sin esperar GPS)
+        if (typeof CARGADORES_UTE_ESTATICOS !== 'undefined') {
+            const estaticos = CARGADORES_UTE_ESTATICOS.map((c, i) => ({
+                ...c, id: 'ute_static_' + i, dist: undefined
+            }));
+            agregarMarcadoresCiudad(estaticos);
+        }
     }
 
     if (!navigator.geolocation) {
