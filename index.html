@@ -1591,6 +1591,44 @@
     flex: 1;
     min-height: 0;
   }
+
+  /* ── OVERLAY DESLIZABLE ── */
+  #route-overlay {
+    transition: height 0.25s ease;
+    height: 45vh;           /* altura inicial */
+  }
+  #route-overlay.expanded  { height: 88vh; }
+  #route-overlay.collapsed { height: 56px; overflow: hidden; }
+  #overlay-drag-handle { touch-action: none; }
+
+  /* ── MENÚ HAMBURGUESA ── */
+  .ham-fab {
+    position: absolute;
+    top: 12px; left: 12px;
+    z-index: 190;
+    background: rgba(13,20,38,0.85);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 42px; height: 42px;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+  }
+  .ham-drawer {
+    display: none;
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 185;
+    background: var(--surface);
+    border-bottom: 2px solid var(--border);
+    padding: 56px 14px 16px;
+    max-height: 85vh;
+    overflow-y: auto;
+    animation: slideDown 0.25s ease;
+  }
+  .ham-drawer.open { display: block; }
 </style>
 </head>
 <body>
@@ -1740,6 +1778,71 @@
 <input type="hidden" id="capacidad" value="38.8">
 <input type="hidden" id="consumo" value="8.8">
 <input type="hidden" id="consumo_ruta_vh" value="7.5">
+
+<!-- Botón hamburguesa — simulaciones de carga -->
+<button class="ham-fab" onclick="toggleHamDrawer()" title="Simulaciones">☰</button>
+
+<!-- Drawer hamburguesa (simulaciones) -->
+<div class="ham-drawer" id="ham-drawer">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <span style="font-family:'Nunito Sans',sans-serif;font-weight:800;font-size:15px">🔋 Simulaciones</span>
+    <button onclick="toggleHamDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button>
+  </div>
+
+  <!-- Cálculo por porcentaje -->
+  <div class="section-card">
+    <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
+      <div class="section-icon icon-blue">🔋</div>
+      <div class="section-title">Cálculo por porcentaje</div>
+    </div>
+    <div class="section-body collapsed">
+      <div class="row">
+        <div class="field-group">
+          <label class="field-label">% Inicial</label>
+          <input type="number" id="ham-inicio" value="20" min="0" max="100">
+        </div>
+        <div class="field-group">
+          <label class="field-label">% Final</label>
+          <input type="number" id="ham-fin" value="80" min="0" max="100">
+        </div>
+      </div>
+      <button class="btn" onclick="calcularHamPorcentaje()">Calcular ›</button>
+      <div class="result-box" id="ham-resultado1"></div>
+    </div>
+  </div>
+
+  <!-- Cálculo por tiempo -->
+  <div class="section-card">
+    <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
+      <div class="section-icon icon-purple">⏱️</div>
+      <div class="section-title">Cálculo por tiempo</div>
+    </div>
+    <div class="section-body collapsed">
+      <div class="field-group" style="margin-bottom:14px">
+        <label class="field-label">Minutos de carga</label>
+        <input type="number" id="ham-minutos" value="30" min="1">
+      </div>
+      <button class="btn" onclick="calcularHamTiempo()">Calcular ›</button>
+      <div class="result-box" id="ham-resultado2"></div>
+    </div>
+  </div>
+
+  <!-- Cuánto cargar para X km -->
+  <div class="section-card">
+    <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
+      <div class="section-icon icon-green">🗺️</div>
+      <div class="section-title">¿Cuánto cargar para X km?</div>
+    </div>
+    <div class="section-body collapsed">
+      <div class="field-group" style="margin-bottom:14px">
+        <label class="field-label">Km objetivo</label>
+        <input type="number" id="ham-kmobj" value="150" min="1">
+      </div>
+      <button class="btn" onclick="calcularHamKm()">Calcular ›</button>
+      <div class="result-box" id="ham-resultado3"></div>
+    </div>
+  </div>
+</div>
 
 <!-- Botón Viaje flotante -->
 <button class="viaje-fab" onclick="toggleViajeDrawer()">
@@ -1909,64 +2012,43 @@
 <!-- OVERLAY DE RESULTADOS (oculto hasta que se calcule ruta) -->
 <div class="panel-overlay" id="route-overlay" style="display:none">
 
-<div class="section-card" style="margin-bottom:8px">
-  <div class="section-body">
-    <!-- Botón volver al mapa -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <span style="font-size:13px;font-weight:700;color:var(--accent)">🗺️ Ruta planificada</span>
-      <button onclick="mostrarCityMap()"
-              style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer"
-              title="Volver al mapa">✕</button>
+<!-- Drag handle para deslizar el panel -->
+<div id="overlay-drag-handle" style="width:40px;height:5px;background:var(--border);border-radius:3px;margin:8px auto 10px;cursor:ns-resize"></div>
+
+<!-- Botones principales — siempre visibles arriba del panel -->
+<div id="viaje-acciones" style="display:none;gap:10px;margin-bottom:10px;flex-wrap:wrap" class="trip-actions">
+  <button class="btn-guardar" onclick="guardarViaje()">💾 Guardar</button>
+  <button class="btn-iniciar" onclick="iniciarNavegacion()">▶ Iniciar navegación</button>
+  <label class="toggle-label" title="Mostrar zonas" style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--text-muted);font-family:'Nunito Sans',sans-serif;font-weight:700">
+    <div class="toggle-switch" id="toggle-zonas-wrap" onclick="toggleZonaCirculos()">
+      <div class="toggle-knob" id="toggle-zonas-knob"></div>
     </div>
-
-    <!-- DESTINOS RÁPIDOS (viajes guardados) -->
-    <div id="destinos-rapidos" style="margin-bottom:10px;display:none">
-      <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:6px">Recientes:</div>
-      <div id="destinos-rapidos-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-    </div>
-
-    <div class="addr-hint" style="margin-bottom:12px">
-      <b>Texto:</b> "Montevideo" · "18 de Julio 1360, Mvd" · "Rivera y Larrañaga, Salto" · "Buenos Aires"
-    </div>
-
-    <datalist id="uy-cities">
-      <option value="Montevideo"></option><option value="Punta del Este">
-      </option><option value="Maldonado"></option><option value="Colonia del Sacramento">
-      </option><option value="Salto"></option><option value="Paysandú"></option><option value="Rivera">
-      </option><option value="Tacuarembó"></option><option value="Melo"></option><option value="Treinta y Tres">
-      </option><option value="Rocha"></option><option value="Chuy"></option><option value="Mercedes">
-      </option><option value="Fray Bentos"></option><option value="Trinidad"></option><option value="Durazno">
-      </option><option value="Florida"></option><option value="Minas"></option><option value="San José de Mayo">
-      </option><option value="Canelones"></option><option value="Las Piedras"></option><option value="Piriápolis">
-      </option><option value="La Paloma"></option><option value="Castillos"></option><option value="Young">
-      </option><option value="Artigas">
-    </option></datalist>
-
-    <hr style="border:none;border-top:1px solid var(--border);margin:0 0 14px">
-
-    <!-- PARÁMETROS VIAJE LARGO (ocultos en modo ciudad) -->
-    <!-- BOTÓN BUSCAR / TRAZAR (se habilita cuando hay texto en ambos campos) -->
-    <!-- RESULTADO BÚSQUEDA -->
-    <div id="route-search-result"></div>
-
-    <!-- Botones de acción del viaje (siempre visibles tras buscar) -->
-    <div id="viaje-acciones" style="display:none;gap:10px;margin-top:2px;flex-wrap:wrap" class="trip-actions">
-      <button class="btn-guardar" onclick="guardarViaje()">💾 Guardar</button>
-      <button class="btn-iniciar" onclick="iniciarNavegacion()">▶ Iniciar navegación</button>
-      <label class="toggle-label" title="Mostrar zonas de alcance en el mapa" style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--text-muted);font-family:'Nunito Sans',sans-serif;font-weight:700">
-        <div class="toggle-switch" id="toggle-zonas-wrap" onclick="toggleZonaCirculos()">
-          <div class="toggle-knob" id="toggle-zonas-knob"></div>
-        </div>
-        🎯 Zonas
-        <input type="range" id="zona-opacidad" min="5" max="50" value="50" style="width:64px;accent-color:var(--accent);display:none" oninput="setZonaOpacidad(this.value)">
-      </label>
-    </div>
-
-    <!-- RESULTADO DEL PLANIFICADOR -->
-    <div class="trip-result" id="trip-result"></div>
-
-  </div>
+    🎯 Zonas
+    <input type="range" id="zona-opacidad" min="5" max="50" value="50"
+           style="width:64px;accent-color:var(--accent);display:none" oninput="setZonaOpacidad(this.value)">
+  </label>
+  <button onclick="mostrarCityMap()"
+          style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);padding:6px 10px;font-size:11px;cursor:pointer">
+    🗺 Volver al mapa
+  </button>
 </div>
+
+<!-- Mensajes de búsqueda (spinner, error, info) -->
+<div id="route-search-result"></div>
+
+<!-- RESULTADO DEL PLANIFICADOR (resumen + paradas siempre visibles) -->
+<div class="trip-result" id="trip-result"></div>
+
+<!-- datalist para autocompletado -->
+<datalist id="uy-cities">
+  <option value="Montevideo"><option value="Punta del Este"><option value="Maldonado">
+  <option value="Colonia del Sacramento"><option value="Salto"><option value="Paysandú">
+  <option value="Rivera"><option value="Tacuarembó"><option value="Melo"><option value="Treinta y Tres">
+  <option value="Rocha"><option value="Chuy"><option value="Mercedes"><option value="Fray Bentos">
+  <option value="Trinidad"><option value="Durazno"><option value="Florida"><option value="Minas">
+  <option value="San José de Mayo"><option value="Canelones"><option value="Las Piedras">
+  <option value="Piriápolis"><option value="La Paloma"><option value="Artigas">
+</datalist>
 
 
 <script>
@@ -4364,13 +4446,20 @@ async function buscarRuta() {
             if (estaciones.length > 0 && chipsHtml) {
                 const tripEl = document.getElementById('trip-result');
                 if (tripEl) {
-                    tripEl.innerHTML += `<div class="section-card" style="margin-top:12px">
-                        <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
-                            <div class="section-icon" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25)">⚡</div>
-                            <div class="section-title">⚡ Cargadores en ruta (${estaciones.length})</div>
-                        </div>
-                        <div class="section-body collapsed">${chipsHtml}</div>
-                    </div>`;
+                    // Botón "Ver cargadores" simple afuera del bloque, toggle del panel
+                    tripEl.innerHTML += `
+                        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+                            <button onclick="toggleCargadoresPanel()" id="btn-ver-cargadores"
+                                    style="width:100%;padding:8px 14px;background:rgba(251,191,36,0.08);
+                                    border:1px solid rgba(251,191,36,0.3);border-radius:8px;
+                                    color:#fbbf24;font-family:'Nunito Sans',sans-serif;font-weight:700;
+                                    font-size:13px;cursor:pointer;text-align:left">
+                                ⚡ Ver cargadores en ruta (${estaciones.length}) ▾
+                            </button>
+                            <div id="cargadores-panel-ext" style="display:none;margin-top:8px">
+                                ${chipsHtml}
+                            </div>
+                        </div>`;
                 }
             }
         }, 350);
@@ -4716,17 +4805,12 @@ function renderViaje(tramos) {
       ${hayError ? '<br><span style="color:#f87171">⚠ Algún tramo no tiene batería suficiente. Revisá las paradas.</span>' : ''}
     </div>`;
 
-    document.getElementById('trip-result').innerHTML = summaryHtml +
-        `<div class="paradas-toggle-row">
-            <button class="paradas-toggle-btn" id="btn-paradas-toggle"
-                    onclick="toggleResumenParadas()">
-                📋 Ver resumen de paradas ▾
-            </button>
-        </div>
-        <div id="resumen-paradas-wrap" style="display:none">
-            ${htmlParadas}
-        </div>`;
-    // Mostrar el overlay de resultados (y route-map)
+    document.getElementById('trip-result').innerHTML =
+        summaryHtml +
+        `<div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text-muted);margin:10px 0 6px;padding-top:8px;border-top:1px solid var(--border)">
+            📋 PARADAS
+        </div>` +
+        htmlParadas;
     mostrarRouteOverlay();
 }
 
@@ -4837,6 +4921,17 @@ let _sugTimers = {};
 
 let _modoCarga = 'manual'; // 'manual' | 'optimo'
 
+
+function toggleCargadoresPanel() {
+    const panel = document.getElementById('cargadores-panel-ext');
+    const btn   = document.getElementById('btn-ver-cargadores');
+    if (!panel || !btn) return;
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    btn.textContent = visible
+        ? `⚡ Ver cargadores en ruta ▾`
+        : `⚡ Ocultar cargadores ▴`;
+}
 function toggleResumenParadas() {
     const wrap = document.getElementById('resumen-paradas-wrap');
     const btn  = document.getElementById('btn-paradas-toggle');
@@ -6288,6 +6383,102 @@ function mostrarCityMap() {
     setTimeout(() => autoCargarMapaCiudad(), 200);
 }
 
+
+// ── MENÚ HAMBURGUESA ──
+function toggleHamDrawer() {
+    const d = document.getElementById('ham-drawer');
+    if (d) d.classList.toggle('open');
+}
+
+function calcularHamPorcentaje() {
+    const cap     = parseFloat(document.getElementById('capacidad')?.value) || 50;
+    const pot     = parseFloat(document.getElementById('potencia')?.value)  || 7;
+    const inicio  = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
+    const fin     = parseFloat(document.getElementById('ham-fin')?.value)    || 80;
+    const energia = ((fin - inicio) / 100) * cap;
+    const horas   = energia / pot;
+    const resEl   = document.getElementById('ham-resultado1');
+    if (resEl) resEl.innerHTML = `
+        <b>${energia.toFixed(1)} kWh</b> · <b>${fmtTiempo(horas)}</b>
+        ${pot <= 22 ? `· <span style="color:var(--success)">$${(54.8 + energia*10.4).toFixed(0)} UYU</span>` : `· <span style="color:var(--success)">$${(132.9 + energia*11.8).toFixed(0)} UYU</span>`}`;
+}
+
+function calcularHamTiempo() {
+    const cap     = parseFloat(document.getElementById('capacidad')?.value) || 50;
+    const pot     = parseFloat(document.getElementById('potencia')?.value)  || 7;
+    const inicio  = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
+    const minutos = parseFloat(document.getElementById('ham-minutos')?.value) || 30;
+    const energia = pot * (minutos / 60);
+    const kwh_cap = (inicio / 100) * cap;
+    const socFin  = Math.min(100, ((kwh_cap + energia) / cap) * 100);
+    const resEl   = document.getElementById('ham-resultado2');
+    if (resEl) resEl.innerHTML = `
+        <b>${energia.toFixed(1)} kWh</b> cargados · batería: <b>${inicio.toFixed(0)}% → ${socFin.toFixed(1)}%</b>`;
+}
+
+function calcularHamKm() {
+    const cap     = parseFloat(document.getElementById('capacidad')?.value) || 50;
+    const consumo = parseFloat(document.getElementById('consumo')?.value)   || 8.8;
+    const pot     = parseFloat(document.getElementById('potencia')?.value)  || 7;
+    const inicio  = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
+    const kmObj   = parseFloat(document.getElementById('ham-kmobj')?.value) || 150;
+    const energNec = (kmObj / 100) * consumo;
+    const energIni = (inicio / 100) * cap;
+    const energCargar = Math.max(0, energNec - energIni);
+    const horas   = energCargar / pot;
+    const resEl   = document.getElementById('ham-resultado3');
+    if (resEl) resEl.innerHTML = energCargar <= 0
+        ? `<span style="color:var(--success)">✅ Ya tenés carga suficiente para ${kmObj} km</span>`
+        : `Cargar <b>${energCargar.toFixed(1)} kWh</b> · <b>${fmtTiempo(horas)}</b>`;
+}
+
+// ── OVERLAY DESLIZABLE (drag handle) ──
+(function initDragOverlay() {
+    let startY = 0, startH = 0, dragging = false;
+    const getOverlay = () => document.getElementById('route-overlay');
+    const getHandle  = () => document.getElementById('overlay-drag-handle');
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const handle = getHandle();
+        if (!handle) return;
+
+        handle.addEventListener('touchstart', e => {
+            const overlay = getOverlay(); if (!overlay) return;
+            dragging = true;
+            startY = e.touches[0].clientY;
+            startH = overlay.offsetHeight;
+        }, { passive: true });
+
+        handle.addEventListener('touchmove', e => {
+            if (!dragging) return;
+            const overlay = getOverlay(); if (!overlay) return;
+            const dy = startY - e.touches[0].clientY;
+            const newH = Math.max(56, Math.min(window.innerHeight * 0.92, startH + dy));
+            overlay.style.height = newH + 'px';
+            overlay.classList.remove('expanded','collapsed');
+        }, { passive: true });
+
+        handle.addEventListener('touchend', () => { dragging = false; });
+
+        // Doble tap en handle: alternar expandido/colapsado
+        let lastTap = 0;
+        handle.addEventListener('click', () => {
+            const overlay = getOverlay(); if (!overlay) return;
+            const now = Date.now();
+            if (now - lastTap < 350) {
+                overlay.classList.toggle('expanded');
+                overlay.classList.remove('collapsed');
+                overlay.style.height = '';
+            } else {
+                // Single tap: colapsar si expandido, expandir si colapsado
+                overlay.classList.toggle('collapsed');
+                overlay.classList.remove('expanded');
+                overlay.style.height = '';
+            }
+            lastTap = now;
+        });
+    });
+})();
 
 </script>
 
