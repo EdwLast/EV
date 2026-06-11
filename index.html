@@ -742,20 +742,32 @@
 
   /* ── CITY CHARGER MAP ── */
   /* ── MAPA COMO FONDO (Carga, Viaje largo, Viaje Ciudad) ── */
+  /* ── MAPA PRINCIPAL — ocupa toda la pantalla ── */
+  #city-map-fullscreen {
+    position: fixed !important;
+    top: 0; left: 0;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 5;
+  }
   #panel-viaje {
-    padding: 0;
-    background: transparent !important;
     position: fixed !important;
     top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 5;
     overflow: hidden;
-    z-index: 20;
+    background: #0a0e17;
   }
-
-  /* Mapas: llenan el panel como fondo */
-  #panel-viaje #city-map,
+  #panel-viaje #city-map {
+    position: absolute !important;
+    top: 0; left: 0;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 1;
+  }
   #panel-viaje #route-map {
     position: absolute !important;
-    inset: 0;
+    top: 0; left: 0;
+    width: 100% !important;
     height: 100% !important;
     z-index: 1;
   }
@@ -1929,7 +1941,7 @@
 </div>
 
 <!-- MAPA como fondo (directo en panel, z-index 1) -->
-<div id="city-map"></div>
+<div id="city-map" style="width:100%;height:100%;min-height:100vh"></div>
 <div id="city-map-status"></div>
 
 <!-- BARRA INFERIOR COMPACTA — solo % niveles -->
@@ -2042,11 +2054,14 @@ document.addEventListener("DOMContentLoaded", function() {
     const tieneVehiculo = !!localStorage.getItem('ev-vehiculo');
 
     if (!tieneVehiculo) {
-        // Sin vehículo: mostrar mensaje sobre el mapa
-        mostrarMensajeSinVehiculo();
+        // Sin vehículo: inicializar mapa igual y mostrar mensaje
+        setTimeout(() => autoCargarMapaCiudad(), 100);
+        setTimeout(() => mostrarMensajeSinVehiculo(), 600);
     } else {
         // Con vehículo: inicializar mapa con cargadores
-        setTimeout(() => autoCargarMapaCiudad(), 500);
+        // Intentar inmediatamente y también con delays
+        setTimeout(() => autoCargarMapaCiudad(), 100);
+        setTimeout(() => { if (!_cityMap) autoCargarMapaCiudad(); }, 800);
     }
 });
 
@@ -2748,15 +2763,36 @@ async function buscarCargadoresCercanos() {
 // Inicializar mapa base sin cargadores (rápido, no espera GPS)
 function renderCityMapBase(lat, lon) {
     const mapEl = document.getElementById('city-map');
-    if (!mapEl) return;
+    if (!mapEl) { console.error('city-map not found'); return; }
+
+    // Forzar dimensiones antes de inicializar Leaflet
+    mapEl.style.width  = '100%';
+    mapEl.style.height = window.innerHeight + 'px';
+
     if (_cityMap) { try { _cityMap.remove(); } catch(e){} _cityMap = null; }
-    _cityMap = L.map('city-map', { zoomControl: true, attributionControl: false });
-    const cms = MAP_STYLES[_mapStyle] || MAP_STYLES.nav;
-    _cityTileLayer = L.tileLayer(cms.url, {
-        attribution: cms.attr, subdomains: cms.sub, maxZoom: 19
-    }).addTo(_cityMap);
-    _cityMap.setView([lat, lon], 13);
-    setTimeout(() => _cityMap?.invalidateSize(), 200);
+
+    try {
+        _cityMap = L.map('city-map', {
+            zoomControl: true,
+            attributionControl: true,
+            preferCanvas: false
+        });
+        const cms = MAP_STYLES[_mapStyle] || MAP_STYLES.nav;
+        _cityTileLayer = L.tileLayer(cms.url, {
+            attribution: cms.attr,
+            subdomains: cms.sub || 'abc',
+            maxZoom: 19,
+            crossOrigin: true
+        }).addTo(_cityMap);
+        _cityMap.setView([lat, lon], 13);
+        // Múltiples invalidateSize para garantizar render
+        [100, 300, 600, 1200].forEach(ms =>
+            setTimeout(() => { if (_cityMap) _cityMap.invalidateSize(true); }, ms)
+        );
+        console.log('City map initialized at', lat, lon);
+    } catch(err) {
+        console.error('Error initializing city map:', err);
+    }
 }
 
 // Agregar marcadores de cargadores al city-map existente
