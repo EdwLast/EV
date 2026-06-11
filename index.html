@@ -960,15 +960,10 @@
     line-height: 1.8;
     color: var(--text-muted);
     margin-bottom: 10px;
-  }
     background: var(--accent-dim);
     border: 1px solid var(--accent);
     border-radius: var(--radius-sm);
     padding: 12px 14px;
-    margin-bottom: 12px;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    line-height: 1.9;
   }
 
   .charger-selected-card .cs-title {
@@ -2018,11 +2013,9 @@ document.addEventListener("DOMContentLoaded", function() {
     const tieneVehiculo = !!localStorage.getItem('ev-vehiculo');
 
     if (!tieneVehiculo) {
-        switchPanel('vehiculo');   // sin vehículo → Config
-    } else if (savedPanel === 'vehiculo' || !savedPanel) {
-        switchPanel('viaje');      // vehículo listo → Viaje por defecto
+        switchPanel('vehiculo');   // sin vehículo → Config siempre
     } else {
-        switchPanel(savedPanel === 'carga' ? 'viaje' : savedPanel);
+        switchPanel('viaje');      // con vehículo → siempre Viaje al iniciar
     }
 });
 
@@ -3626,22 +3619,14 @@ function refreshChipColors(tramos) {
     const wrap = document.querySelector('.station-list-wrap');
     if (wrap) {
         wrap.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <div class="station-list-title" style="margin-bottom:0">Cargadores encontrados por tramo</div>
-                <button class="sort-btn" style="flex:none;padding:5px 10px" onclick="toggleCargadores()">
-                    <span id="btn-cargadores-txt">Ver cargadores ▾</span>
-                </button>
+            <div class="station-list-title" style="margin-bottom:8px">Cargadores por tramo</div>
+            ${legendHtml}
+            <div class="sort-row">
+                <span class="sort-label">Orden:</span>
+                <button class="sort-btn ${_currentSort==='ruta'?'active':''}"     id="sort-ruta"     onclick="setSort('ruta')">📍 Recorrido</button>
+                <button class="sort-btn ${_currentSort==='potencia'?'active':''}" id="sort-potencia"  onclick="setSort('potencia')">⚡ Potencia</button>
             </div>
-            <div id="cargadores-panel" style="display:none">
-                ${legendHtml}
-                <div class="sort-row">
-                    <span class="sort-label">Orden:</span>
-                    <button class="sort-btn ${_currentSort==='ruta'?'active':''}"     id="sort-ruta"     onclick="setSort('ruta')">📍 Recorrido</button>
-                    <button class="sort-btn ${_currentSort==='potencia'?'active':''}" id="sort-potencia"  onclick="setSort('potencia')">⚡ Potencia</button>
-                </div>
-                <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">${chipsInner}</div>
-            </div>
-            <button class="btn" style="margin-top:10px" onclick="planificarViajeRuta()">Replanificar ›</button>`;
+            <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">${chipsInner}</div>`;
         setTimeout(() => renderMap(), 100);
     }
 }
@@ -4317,23 +4302,13 @@ async function buscarRuta() {
             </div>`;
 
             chipsHtml = `<div class="station-list-wrap">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <div class="station-list-title" style="margin-bottom:0">Cargadores encontrados por tramo</div>
-                    <button class="sort-btn" style="flex:none;padding:5px 10px" onclick="toggleCargadores()">
-                        <span id="btn-cargadores-txt">Ver cargadores ▾</span>
-                    </button>
+                <div class="station-list-title" style="margin-bottom:8px">Cargadores por tramo</div>
+                ${legendHtml}
+                ${sortRow}
+                <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">
+                    ${buildChipsHtml(estaciones, zonas, ZONE_CLASSES, 'ruta', tramosIniciales)}
                 </div>
-                <div id="cargadores-panel" style="display:none">
-                    ${legendHtml}
-                    ${sortRow}
-                    <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">
-                        ${buildChipsHtml(estaciones, zonas, ZONE_CLASSES, 'ruta', tramosIniciales)}
-                    </div>
-                </div>` +
-                (distKm > autonomiaActual
-                    ? `<button class="btn" style="margin-top:10px" onclick="planificarViajeRuta()">Planificar viaje con estos cargadores ›</button>`
-                    : `<div class="loading-msg" style="color:var(--success)">✓ Tu autonomía actual (${autonomiaActual.toFixed(0)} km) alcanza para llegar sin cargar.</div>`
-                ) + `</div>`;
+            </div>`;
         }
 
         // 1. Mostrar route-map ANTES que Leaflet lo inicialice (necesita dimensiones reales)
@@ -5678,13 +5653,22 @@ function detenerNavegacion() {
     document.getElementById('nav-overlay')?.classList.remove('active');
     
     salirMapaFullscreen();
-    if (_navFromCarga) {
-        _navFromCarga = false;
-        setTimeout(() => mostrarCityMap(), 300);
-    } else if (window._rutaData) {
-        mostrarRouteOverlay();
-    document.getElementById('viaje-acciones').style.display = 'flex';
-    }
+    _navFromCarga = false;
+    setTimeout(() => {
+        mostrarCityMap();
+        // Colapsar y limpiar el overlay de resultados
+        const overlay = document.getElementById('route-overlay');
+        if (overlay) { overlay.style.display = 'none'; overlay.style.height = ''; overlay.classList.remove('expanded'); }
+        const tripEl = document.getElementById('trip-result');
+        if (tripEl) tripEl.innerHTML = '';
+        const resEl = document.getElementById('route-search-result');
+        if (resEl) resEl.innerHTML = '';
+        const acEl = document.getElementById('viaje-acciones');
+        if (acEl) acEl.style.display = 'none';
+        window._rutaData = null;
+        // Recargar cargadores cercanos
+        setTimeout(() => autoCargarMapaCiudad(), 400);
+    }, 300);
     mostrarToast('⏹ Navegación detenida');
 }
 
@@ -6402,6 +6386,24 @@ function calcularHamKm() {
 </script>
 
 </div><!-- /panel-overlay -->
+
+
+<!-- CARGADOR SELECCIONADO (aparece al tocar un cargador en el mapa) -->
+<div class="charger-selected-card" id="charger-selected-card">
+  <div class="cs-title">
+    <div>
+      <span id="cs-nombre" style="font-weight:800;font-size:14px">—</span><br>
+      <span id="cs-badge" class="stop-badge badge-charge" style="font-size:11px">— kW</span>
+    </div>
+    <button class="cs-close" onclick="cerrarCargadorSeleccionado()">✕</button>
+  </div>
+  <div id="cs-result"></div>
+  <button class="btn" id="btn-ir-cargador"
+          style="background:rgba(34,197,94,0.12);border-color:#22c55e;color:#22c55e;max-width:none;width:100%;margin-top:8px"
+          onclick="irAlCargadorSeleccionado()">
+    🧭 Navegar al cargador
+  </button>
+</div>
 
 </div><!-- /panel-viaje -->
 
