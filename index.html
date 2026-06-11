@@ -4111,52 +4111,100 @@ let _selectorMap   = null;
 let _selectorTarget = null; // 'origen' | 'destino'
 let _selectorMarker = null;
 
+let _cityTapMode = false;
+let _cityTapMarker = null;
+
+// Activa modo "tap para seleccionar destino" sobre el mapa de ciudad existente
 function abrirMapaSelector(target) {
-    _mapaSelectorTarget = target;
+    _mapaSelectorTarget = target || 'destino';
+    // Cerrar drawer para que el mapa sea visible
+    document.getElementById('viaje-drawer')?.classList.remove('open');
+    // Activar tap-mode en city-map
+    activarTapModeCity();
+}
+
+function activarTapModeCity() {
+    if (!_cityMap) {
+        // Si city-map no inicializado aún, abrir modal como fallback
+        _abrirModalPicker();
+        return;
+    }
+    _cityTapMode = true;
+    // Banner flotante sobre el mapa
+    let banner = document.getElementById('city-tap-banner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'city-tap-banner';
+        banner.innerHTML = `📌 Tocá el mapa para seleccionar el destino
+            <button onclick="desactivarTapModeCity()" style="float:right;background:none;border:none;color:#fff;font-size:16px;cursor:pointer">✕</button>`;
+        banner.style.cssText = 'position:absolute;top:0;left:0;right:0;z-index:200;background:rgba(0,100,180,0.88);color:#fff;padding:10px 14px;font-family:Nunito Sans,sans-serif;font-size:13px;font-weight:700;pointer-events:auto';
+        document.getElementById('panel-viaje')?.appendChild(banner);
+    }
+    banner.style.display = 'block';
+
+    // Handler de tap una sola vez
+    _cityMap.on('click', _onCityTap);
+}
+
+async function _onCityTap(e) {
+    const { lat, lng } = e.latlng;
+    // Marcador provisional
+    if (_cityTapMarker) _cityTapMarker.remove();
+    _cityTapMarker = L.marker([lat, lng], {
+        icon: L.divIcon({ className: '', html: '<div style="width:20px;height:20px;background:#3b82f6;border:3px solid #fff;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>', iconAnchor:[10,10] })
+    }).addTo(_cityMap);
+
+    _pickerLat = lat; _pickerLon = lng; _pickerAddr = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+    // Geocodificación inversa
+    try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+            { headers: { 'Accept-Language': 'es' } });
+        const d = await r.json();
+        _pickerAddr = d?.display_name || _pickerAddr;
+    } catch(err) {}
+
+    // Confirmar automáticamente y volver al drawer
+    confirmarPuntoMapa();
+    // Reabrir drawer con el destino ya cargado
+    setTimeout(() => document.getElementById('viaje-drawer')?.classList.add('open'), 200);
+}
+
+function desactivarTapModeCity() {
+    _cityTapMode = false;
+    if (_cityMap) _cityMap.off('click', _onCityTap);
+    const banner = document.getElementById('city-tap-banner');
+    if (banner) banner.style.display = 'none';
+}
+
+// Fallback: modal fullscreen si no hay city-map disponible
+function _abrirModalPicker() {
     const modal = document.getElementById('mapa-picker-modal');
-    const confirm = document.getElementById('mapa-picker-confirm');
-    const addrEl  = document.getElementById('mapa-picker-addr');
+    const confirmEl = document.getElementById('mapa-picker-confirm');
+    const addrEl    = document.getElementById('mapa-picker-addr');
     if (!modal) return;
-
-    // Mostrar modal
     modal.style.display = 'flex';
-    if (confirm) confirm.style.display = 'none';
-    if (addrEl)  addrEl.textContent = '';
-
-    // Inicializar o reusar el mapa selector
+    if (confirmEl) confirmEl.style.display = 'none';
+    if (addrEl)    addrEl.textContent = '';
     setTimeout(() => {
         if (_selectorMap) { _selectorMap.invalidateSize(); return; }
-        const defaultLat = _lastGPS?.lat || -34.9;
-        const defaultLon = _lastGPS?.lon || -56.2;
-        _selectorMap = L.map('mapa-selector', { zoomControl: true }).setView([defaultLat, defaultLon], 12);
+        _selectorMap = L.map('mapa-selector', { zoomControl: true })
+            .setView([_lastGPS?.lat || -34.9, _lastGPS?.lon || -56.2], 12);
         const s = MAP_STYLES[_mapStyle] || MAP_STYLES.nav;
         L.tileLayer(s.url, { attribution: s.attr, subdomains: s.sub, maxZoom: 19 }).addTo(_selectorMap);
-
-        // Marcador temporal
-        let tmpMarker = null;
         _selectorMap.on('click', async e => {
             const { lat, lng } = e.latlng;
-            if (tmpMarker) tmpMarker.remove();
-            tmpMarker = L.marker([lat, lng]).addTo(_selectorMap);
-
-            // Geocodificación inversa para mostrar dirección
+            if (_cityTapMarker) _cityTapMarker.remove();
+            _cityTapMarker = L.marker([lat, lng]).addTo(_selectorMap);
             if (addrEl) addrEl.textContent = '⌛ Obteniendo dirección...';
-            if (confirm) confirm.style.display = 'block';
-
+            if (confirmEl) confirmEl.style.display = 'block';
+            _pickerLat = lat; _pickerLon = lng;
             try {
-                const r = await fetch(
-                    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
-                    { headers: { 'Accept-Language': 'es' } }
-                );
+                const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, { headers: { 'Accept-Language': 'es' } });
                 const d = await r.json();
-                const addr = d?.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-                if (addrEl) addrEl.textContent = addr;
-                // Guardar coords temporalmente
-                _pickerLat = lat; _pickerLon = lng; _pickerAddr = addr;
-            } catch(err) {
-                if (addrEl) addrEl.textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-                _pickerLat = lat; _pickerLon = lng; _pickerAddr = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-            }
+                _pickerAddr = d?.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                if (addrEl) addrEl.textContent = _pickerAddr;
+            } catch(err) { _pickerAddr = `${lat.toFixed(5)}, ${lng.toFixed(5)}`; if (addrEl) addrEl.textContent = _pickerAddr; }
         });
     }, 100);
 }
@@ -4183,7 +4231,12 @@ function confirmarPuntoMapa() {
 
 
 function cerrarMapaSelector() {
-    document.getElementById('mapa-selector-wrap').style.display = 'none';
+    // Cerrar el modal picker fullscreen
+    const modal = document.getElementById('mapa-picker-modal');
+    if (modal) modal.style.display = 'none';
+    // También desactivar tap-mode en el city-map si estuviera activo
+    desactivarTapModeCity();
+    _mapaSelectorTarget = null;
 }
 
 // ── FUNCIÓN PRINCIPAL ──
@@ -4881,13 +4934,33 @@ async function accionRuta() {
         return;
     }
 
-    // ── Paso 2: Verificar que hay destino ──
+    // ── Paso 2: Verificar y geocodificar destino ──
     const destinoInp = document.getElementById('r_destino');
-    const dLat = parseFloat(destinoInp?.dataset?.lat);
-    const dLon = parseFloat(destinoInp?.dataset?.lon);
+    let dLat = parseFloat(destinoInp?.dataset?.lat);
+    let dLon = parseFloat(destinoInp?.dataset?.lon);
+
+    // Si hay texto pero no coordenadas → geocodificar ahora
+    if ((!isFinite(dLat) || !isFinite(dLon)) && destinoInp?.value?.trim()) {
+        try {
+            if (resBtn) { resBtn.disabled = true; resBtn.textContent = '🔍 Geocodificando destino...'; }
+            const destGeo = await geocode(destinoInp.value.trim());
+            dLat = destGeo.lat; dLon = destGeo.lon;
+            // Guardar coords para uso posterior
+            destinoInp.dataset.lat = dLat;
+            destinoInp.dataset.lon = dLon;
+            destinoInp.dataset.resolvedName = destGeo.name;
+            destinoInp.value = destGeo.name;
+            const hint = document.getElementById('destino-hint');
+            if (hint) hint.innerHTML = `<b>✓</b> ${destGeo.name}`;
+        } catch(geoErr) {
+            mostrarToast('⚠ No se encontró el destino. Intentá con otra búsqueda.', 4000);
+            if (resBtn) { resBtn.disabled = false; resBtn.textContent = '🔍 Trazar Ruta'; }
+            return;
+        }
+    }
 
     if (!isFinite(dLat) || !isFinite(dLon)) {
-        // Sin coordenadas de destino → ruta ciudad directa (ej: viaje a cargador cercano)
+        // Sin texto ni coords → ruta ciudad directa (viaje a cargador cercano)
         _tipoViaje = 'ciudad';
         await trazarRutaCiudad();
         if (resBtn) { resBtn.disabled = false; resBtn.textContent = '🔍 Trazar Ruta'; }
