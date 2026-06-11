@@ -742,14 +742,13 @@
 
   /* ── CITY CHARGER MAP ── */
   /* ── MAPA COMO FONDO (Carga, Viaje largo, Viaje Ciudad) ── */
-  #panel-carga.active,
   #panel-viaje {
     padding: 0;
     background: transparent !important;
     position: fixed !important;
-    top: 0; left: 0; right: 0; bottom: 62px;
+    top: 0; left: 0; right: 0; bottom: 0;
     overflow: hidden;
-    z-index: 10;
+    z-index: 20;
   }
 
   /* Mapas: llenan el panel como fondo */
@@ -2043,9 +2042,11 @@ document.addEventListener("DOMContentLoaded", function() {
     const tieneVehiculo = !!localStorage.getItem('ev-vehiculo');
 
     if (!tieneVehiculo) {
-        switchPanel('vehiculo');   // sin vehículo → Config siempre
+        // Sin vehículo: mostrar mensaje sobre el mapa
+        mostrarMensajeSinVehiculo();
     } else {
-        switchPanel('viaje');      // con vehículo → siempre Viaje al iniciar
+        // Con vehículo: inicializar mapa con cargadores
+        setTimeout(() => autoCargarMapaCiudad(), 500);
     }
 });
 
@@ -2679,19 +2680,30 @@ let _cityMap    = null;
 let _cityMarkers = [];
 
 async function buscarCargadoresCercanos() {
+    const statusEl = document.getElementById('city-map-status');
+
+    // ── Inicializar mapa INMEDIATAMENTE con vista por defecto (Montevideo) ──
+    if (!_cityMap) {
+        const defaultLat = _lastGPS?.lat || -34.9011;
+        const defaultLon = _lastGPS?.lon || -56.1645;
+        renderCityMapBase(defaultLat, defaultLon);
+        // Mostrar cargadores UTE estáticos de inmediato
+        const estaticos = obtenerCargadoresEstaticosUTE(defaultLat, defaultLon, 50);
+        if (estaticos.length) agregarMarcadoresCiudad(estaticos);
+    }
+
     if (!navigator.geolocation) {
-        document.getElementById('city-map-status').innerHTML =
-            `<div class="loading-msg" style="color:#f87171">⚠ Tu dispositivo no soporta geolocalización.</div>`;
+        if (statusEl) statusEl.innerHTML = '';
         return;
     }
-    const statusEl = document.getElementById('city-map-status');
-    statusEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Obteniendo ubicación...</div>`;
+    if (statusEl) statusEl.innerHTML = `<div class="loading-msg" style="background:rgba(13,20,38,0.7);position:absolute;top:8px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:50;padding:4px 12px;border-radius:20px;font-size:12px"><div class="spinner" style="width:12px;height:12px;display:inline-block;margin-right:6px"></div>Buscando cargadores cercanos...</div>`;
 
     navigator.geolocation.getCurrentPosition(
         async pos => {
             const { latitude: lat, longitude: lon } = pos.coords;
             _lastGPS = { lat, lon };
-            statusEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Buscando cargadores cercanos...</div>`;
+            // Centrar en la posición real del usuario
+            if (_cityMap) _cityMap.setView([lat, lon], 14);
             try {
                 const url = `https://api.openchargemap.io/v3/poi/?output=json`
                     + `&latitude=${lat}&longitude=${lon}&distance=5&maxresults=30&key=${OCM_API_KEY}`;
@@ -2715,18 +2727,55 @@ async function buscarCargadoresCercanos() {
                     };
                 }).sort((a,b) => a.dist - b.dist);
 
-                statusEl.innerHTML = '';
+                if (statusEl) statusEl.innerHTML = '';
                 renderCityMap(lat, lon, cargadores);
             } catch(e) {
-                statusEl.innerHTML = `<div class="loading-msg" style="color:#f87171">⚠ Error: ${e.message}</div>`;
+                if (statusEl) statusEl.innerHTML = '';
             }
         },
         err => {
-            document.getElementById('city-map-status').innerHTML =
-                `<div class="loading-msg" style="color:#f87171">⚠ ${err.code === 1 ? 'Permiso de ubicación denegado' : 'Error de GPS'}</div>`;
+            if (statusEl) statusEl.innerHTML = '';
+            // GPS falló pero el mapa ya está visible con cargadores estáticos
         },
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
     );
+}
+
+// Inicializar mapa base sin cargadores (rápido, no espera GPS)
+function renderCityMapBase(lat, lon) {
+    const mapEl = document.getElementById('city-map');
+    if (!mapEl) return;
+    if (_cityMap) { try { _cityMap.remove(); } catch(e){} _cityMap = null; }
+    _cityMap = L.map('city-map', { zoomControl: true, attributionControl: false });
+    const cms = MAP_STYLES[_mapStyle] || MAP_STYLES.nav;
+    _cityTileLayer = L.tileLayer(cms.url, {
+        attribution: cms.attr, subdomains: cms.sub, maxZoom: 19
+    }).addTo(_cityMap);
+    _cityMap.setView([lat, lon], 13);
+    setTimeout(() => _cityMap?.invalidateSize(), 200);
+}
+
+// Agregar marcadores de cargadores al city-map existente
+function agregarMarcadoresCiudad(cargadores) {
+    if (!_cityMap) return;
+    cargadores.forEach(c => {
+        const color  = c.potencia >= 100 ? '#f87171' : c.potencia >= 50 ? '#fbbf24' : c.potencia >= 22 ? '#00e5ff' : '#6b7fa3';
+        const radius = c.potencia >= 50 ? 10 : c.potencia >= 22 ? 8 : 6;
+        const marker = L.circleMarker([c.lat, c.lon], {
+            radius, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.85
+        }).addTo(_cityMap);
+        marker.bindPopup(`
+            <div style="font-family:sans-serif;min-width:190px">
+                <b>${c.nombre}</b><br>
+                <span style="color:#666">⚡ ${c.potencia.toFixed(0)} kW · ${c.dist !== undefined ? c.dist+' km' : 'UTE'}</span>
+                <hr style="margin:6px 0;border-color:#eee">
+                <button onclick="seleccionarCargadorCiudad(${c.id},'${(c.nombre||'').replace(/'/g,"\\'")}',${c.potencia},${c.lat},${c.lon})"
+                    style="width:100%;padding:6px;background:#0a0e17;border:1px solid #00e5ff;border-radius:5px;
+                           cursor:pointer;color:#00e5ff;font-weight:700;font-size:12px">
+                    ⚡ Usar este cargador
+                </button>
+            </div>`);
+    });
 }
 
 function renderCityMap(myLat, myLon, cargadores) {
@@ -6402,6 +6451,37 @@ function abrirConfig() {
 function cerrarConfig() {
     const pv = document.getElementById('panel-vehiculo');
     if (pv) pv.style.display = 'none';
+}
+
+function mostrarMensajeSinVehiculo() {
+    // Mostrar overlay con mensaje encima del mapa vacío
+    let msg = document.getElementById('sin-vehiculo-msg');
+    if (!msg) {
+        msg = document.createElement('div');
+        msg.id = 'sin-vehiculo-msg';
+        msg.style.cssText = `
+            position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+            z-index:150;background:rgba(13,20,38,0.94);
+            border:1px solid var(--accent);border-radius:16px;
+            padding:28px 24px;text-align:center;max-width:280px;
+            font-family:'Nunito Sans',sans-serif;backdrop-filter:blur(10px);
+        `;
+        msg.innerHTML = `
+            <div style="font-size:48px;margin-bottom:12px">🚗</div>
+            <div style="font-size:16px;font-weight:800;color:var(--text);margin-bottom:8px">
+                Bienvenido a EV Calc PRO
+            </div>
+            <div style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.5">
+                Para comenzar, ingresá al menú ☰ y configurá tu vehículo eléctrico.
+            </div>
+            <button onclick="toggleHamDrawer(); this.closest('#sin-vehiculo-msg').remove()"
+                    style="background:var(--accent);border:none;border-radius:10px;
+                    color:#000;font-weight:800;font-size:14px;padding:10px 22px;cursor:pointer">
+                ☰ Abrir menú y configurar
+            </button>
+        `;
+        document.getElementById('panel-viaje')?.appendChild(msg);
+    }
 }
 function toggleHamDrawer() {
     const d = document.getElementById('ham-drawer');
