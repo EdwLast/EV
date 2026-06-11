@@ -1901,109 +1901,15 @@
 <div id="city-map-status"></div>
 
 <!-- BARRA INFERIOR COMPACTA — solo % niveles -->
-<div id="carga-bottom-bar">
-  <div class="cbb-row">
-    <div class="cbb-field">
-      <span class="cbb-label">Actual</span>
-      <input type="number" id="inicio" value="20" min="0" max="100" oninput="calcular(false)" onblur="ajustarPorcentaje('inicio'); calcular(true)">
-      <span class="cbb-unit">%</span>
-    </div>
-    <div class="cbb-sep">→</div>
-    <div class="cbb-field">
-      <span class="cbb-label">Hasta</span>
-      <input type="number" id="fin" value="80" min="0" max="100" oninput="calcular(false)" onblur="ajustarPorcentaje('fin'); calcular(true)">
-      <span class="cbb-unit">%</span>
-    </div>
-    <button class="cbb-menu-btn" onclick="toggleCargaDrawer()" title="Cálculos">
-      🧮
-    </button>
-  </div>
-</div>
 
-<!-- DRAWER DE CÁLCULOS (slide-up) -->
-<div id="carga-drawer" class="carga-drawer">
-  <div class="drawer-handle" onclick="toggleCargaDrawer()"></div>
-  <div class="drawer-content">
-
-    <!-- CARGA EN EL HOGAR -->
-    <div class="drawer-section">
-      <div class="drawer-section-title">🏠 Carga en el hogar</div>
-      <div class="drawer-fields">
-        <div class="field-group">
-          <label class="field-label">Cargador domiciliario</label>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input type="number" id="potencia" value="7" step="0.1" min="0.5" max="350" list="potencias-list" oninput="calcular()" onclick="this.select()" style="flex:1">
-            <span style="font-size:12px;color:var(--text-muted)">kW</span>
-          </div>
-          <datalist id="potencias-list">
-            <option value="1.9"></option><option value="3.7"></option><option value="6.2">
-            </option><option value="7"></option><option value="7.2"></option><option value="7.4">
-            </option><option value="11"></option><option value="22"></option><option value="24">
-            </option><option value="40"></option><option value="50"></option><option value="75">
-            </option><option value="100"></option><option value="150"></option><option value="350">
-          </option></datalist>
-        </div>
-        <div class="field-group">
-          <label class="field-label">Costo UTE valle ($/kWh)</label>
-          <input type="number" id="costo" value="4.5">
-        </div>
-      </div>
-    </div>
-
-    <!-- CÁLCULO POR % -->
-    <div class="drawer-section">
-      <div class="drawer-section-title collapsible collapsed" onclick="toggleSeccion(this)">🔋 Cálculo por porcentaje</div>
-      <div class="section-body collapsed">
-        <button class="btn" onclick="calcular()">Calcular ›</button>
-        <div class="result-box" id="resultado1"><span style="color:var(--text-muted)">Tiempo estimado</span>&nbsp;&nbsp;<span class="highlight">3h 20min</span><br><span style="color:var(--text-muted)">Hora de finalización</span>&nbsp;&nbsp;<span class="highlight">🕐 23:22</span><br><hr class="divider"><span style="color:var(--text-muted)">Autonomía final</span>&nbsp;&nbsp;<span class="highlight">352.7 km</span><br><hr class="divider"><span style="color:var(--text-muted)">Costo estimado</span>&nbsp;&nbsp;<span class="cost">$104.76</span><br></div>
-      </div>
-    </div>
-
-    <!-- CÁLCULO POR TIEMPO -->
-    <div class="drawer-section">
-      <div class="drawer-section-title collapsible collapsed" onclick="toggleSeccion(this)">⏱️ Cálculo por tiempo</div>
-      <div class="section-body collapsed">
-        <div class="field-group" style="margin-bottom:10px">
-          <label class="field-label">Minutos de carga</label>
-          <input type="number" id="minutos" value="30" oninput="simularTiempo()">
-        </div>
-        <button class="btn" onclick="simularTiempo()">Calcular ›</button>
-        <div class="result-box" id="resultado2"><span style="color:var(--text-muted)">SOC inicial → final</span>&nbsp;&nbsp;<span class="highlight">20.0% → 29.0%</span><br><span style="color:var(--text-muted)">Hora de finalización</span>&nbsp;&nbsp;<span class="highlight">🕐 20:33</span><br><hr class="divider"><span style="color:var(--text-muted)">Autonomía final</span>&nbsp;&nbsp;<span class="highlight">127.9 km</span><br><hr class="divider"><span style="color:var(--text-muted)">Costo estimado</span>&nbsp;&nbsp;<span class="cost">$15.75</span><br></div>
-      </div>
-    </div>
-
-    <!-- KM OBJETIVO -->
-    <div class="drawer-section">
-      <div class="drawer-section-title collapsible collapsed" onclick="toggleSeccion(this)">🗺️ ¿Cuánto cargar para X km?</div>
-      <div class="section-body collapsed">
-        <div class="field-group" style="margin-bottom:10px">
-          <label class="field-label">Km objetivo</label>
-          <input type="number" id="km_objetivo" value="150" oninput="calcularTiempoParaKm()">
-        </div>
-        <button class="btn" onclick="calcularTiempoParaKm()">Calcular ›</button>
-        <div class="result-box" id="resultado3"><span style="color:var(--text-muted)">Tiempo necesario</span>&nbsp;&nbsp;<span class="highlight">0h 50min</span><br><span style="color:var(--text-muted)">Hora de finalización</span>&nbsp;&nbsp;<span class="highlight">🕐 20:53</span><br><span style="color:var(--text-muted)">SOC final estimado</span>&nbsp;&nbsp;<span class="val">35.0%</span><br><span style="color:var(--text-muted)">Autonomía final</span>&nbsp;&nbsp;<span class="highlight">154 km</span><br><hr class="divider"><span style="color:var(--text-muted)">Costo estimado</span>&nbsp;&nbsp;<span class="cost">$26.19</span><br></div>
-      </div>
-    </div>
-
-  </div>
-</div>
-<!-- Backdrop para cerrar drawer -->
-<div id="carga-drawer-backdrop" onclick="toggleCargaDrawer()" style="display:none;position:fixed;inset:0;z-index:198;background:rgba(0,0,0,0.3)"></div>
-
-<!-- Cargador seleccionado — bottom sheet fijo (ya tiene position:fixed) -->
-<div class="charger-selected-card" id="charger-selected-card">
-  <div class="cs-title">
-    <span id="cs-nombre">—</span>
-    <div style="display:flex;align-items:center;gap:8px">
-      <span class="stop-badge badge-charge" id="cs-badge">— kW</span>
-      <button class="cs-close" onclick="cerrarCargadorSeleccionado()">✕</button>
-    </div>
-  </div>
-  <div id="cs-result"></div>
-  <button class="btn" id="btn-ir-cargador" style="background:rgba(34,197,94,0.12);border-color:#22c55e;color:#22c55e;max-width:none;width:100%" onclick="irAlCargadorSeleccionado()">
-    🧭 Ir al cargador
-  </button>
-</div>
+<!-- Campos ocultos usados por cálculos de carga -->
+<input type="hidden" id="inicio" value="20">
+<input type="hidden" id="fin" value="80">
+<input type="hidden" id="potencia" value="7">
+<input type="hidden" id="costo" value="4.5">
+<input type="hidden" id="resultado1">
+<input type="hidden" id="resultado2">
+<input type="hidden" id="resultado3">
 
 
 <!-- MAPA RUTA (oculto hasta que se planifique un viaje) -->
@@ -2028,8 +1934,8 @@
            style="width:64px;accent-color:var(--accent);display:none" oninput="setZonaOpacidad(this.value)">
   </label>
   <button onclick="mostrarCityMap()"
-          style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);padding:6px 10px;font-size:11px;cursor:pointer">
-    🗺 Volver al mapa
+          style="background:rgba(239,68,68,0.1);border:2px solid #ef4444;border-radius:8px;color:#ef4444;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">
+    ✕ Mapa
   </button>
 </div>
 
@@ -4336,7 +4242,7 @@ async function buscarRuta() {
         return;
     }
 
-    resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Geocodificando origen y destino...</div>`;
+    resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>⌛ Espere, buscando ruta...</div>`;
 
     try {
         // 1. Usar coordenadas guardadas o geocodificar
@@ -4379,10 +4285,9 @@ async function buscarRuta() {
         const autonomiaActual = (socInicio/100) * kmTotales;
 
         let routeInfoHtml = `
-        <div class="route-info-bar" style="margin-top:14px">
-            <span>📍 ${orig.name} → ${dest.name}</span>
-            <span>🛣 <span>${distKm} km</span></span>
-            <span>🔌 <span>${estaciones.length} cargadores encontrados</span></span>
+        <div class="route-info-bar" style="margin-top:6px">
+            <span>🛣 ${distKm} km</span>
+            <span>🔌 ${estaciones.length} cargadores encontrados</span>
         </div>`;
 
         let chipsHtml = '';
@@ -5022,6 +4927,12 @@ async function accionRuta() {
     let origenCoords;
     try {
         if (resBtn) { resBtn.disabled = true; resBtn.textContent = '📍 Obteniendo ubicación...'; }
+        // Mostrar overlay con spinner inmediatamente
+        mostrarRouteOverlay();
+        const resElAcion = document.getElementById('route-search-result');
+        if (resElAcion) resElAcion.innerHTML = '<div class="loading-msg"><div class="spinner"></div>⌛ Calculando ruta, espere...</div>';
+        const acEl = document.getElementById('viaje-acciones');
+        if (acEl) acEl.style.display = 'none';
         origenCoords = await getOrigenCoords();
     } catch(e) {
         mostrarToast('⚠ No se pudo obtener tu ubicación. Activa el GPS.', 4000);
@@ -5231,7 +5142,7 @@ async function trazarRutaCiudad() {
         mostrarToast('⚠ Indica el destino'); return;
     }
 
-    if (resEl) resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Calculando ruta...</div>`;
+    if (resEl) resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>⌛ Espere, calculando ruta...</div>`;
     const accionesEl = document.getElementById('viaje-acciones');
     if (accionesEl) accionesEl.style.display = 'none';
     mostrarRouteOverlay();  // mostrar route-map ya
@@ -6351,7 +6262,15 @@ function cerrarViajeDrawer() {
 
 function cerrarViajeDrawerYBuscar() {
     cerrarViajeDrawer();
-    setTimeout(() => accionRuta(), 200);
+    // Mostrar spinner inmediatamente (antes de que termine el animatino del drawer)
+    setTimeout(() => {
+        mostrarRouteOverlay();
+        const resEl = document.getElementById('route-search-result');
+        if (resEl) resEl.innerHTML = '<div class="loading-msg"><div class="spinner"></div>⌛ Espere, calculando ruta...</div>';
+        const acEl = document.getElementById('viaje-acciones');
+        if (acEl) acEl.style.display = 'none';
+    }, 50);
+    setTimeout(() => accionRuta(), 250);
 }
 
 // Mostrar el overlay de resultados de ruta
