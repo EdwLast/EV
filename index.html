@@ -77,6 +77,7 @@
     top: 0;
     z-index: 10;
     backdrop-filter: blur(10px);
+    display: none; /* mapa ocupa toda la pantalla */
   }
 
   .header-inner {
@@ -742,7 +743,7 @@
   /* ── CITY CHARGER MAP ── */
   /* ── MAPA COMO FONDO (Carga, Viaje largo, Viaje Ciudad) ── */
   #panel-carga.active,
-  #panel-viaje.active {
+  #panel-viaje {
     padding: 0;
     background: transparent !important;
     position: fixed !important;
@@ -752,8 +753,8 @@
   }
 
   /* Mapas: llenan el panel como fondo */
-  #panel-viaje.active #city-map,
-  #panel-viaje.active #route-map {
+  #panel-viaje #city-map,
+  #panel-viaje #route-map {
     position: absolute !important;
     inset: 0;
     height: 100% !important;
@@ -821,7 +822,7 @@
     background: rgba(248,250,255,0.93);
     border-color: rgba(0,0,0,0.09);
   }
-  #panel-viaje.active #carga-bottom-bar { display: block; }
+  #panel-viaje #carga-bottom-bar { display: block; }
 
   .cbb-row {
     display: flex;
@@ -931,7 +932,7 @@
     display: none;
   }
   .charger-selected-card.visible { display: block; }
-  #panel-viaje.active .charger-selected-card.visible {
+  #panel-viaje .charger-selected-card.visible {
     bottom: 130px; /* por encima de la barra de % */
   }
   .cs-title {
@@ -1785,7 +1786,7 @@
 
 
 <!-- ══════════════ PANEL 2: SIMULACIONES DE CARGA ══════════════ -->
-<div id="panel-viaje" style="position:fixed;inset:0;bottom:0">
+<div id="panel-viaje" style="position:fixed;inset:0;bottom:0;z-index:20">
 
 <!-- Campos ocultos globales -->
 <input type="hidden" id="capacidad" value="38.8">
