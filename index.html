@@ -762,18 +762,17 @@
 
   /* Overlay: flex columna con contenido al fondo */
   .panel-overlay {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 10;
+    position: fixed;
+    left: 0; right: 0;
+    bottom: 62px;
+    z-index: 15;
+    max-height: 60vh;
     overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    pointer-events: none;
-    background: transparent;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;   /* empuja las tarjetas al fondo */
-    padding: 0 0 8px 0;
+    padding: 12px 14px 14px;
+    background: var(--bg);
+    border-top: 2px solid var(--accent);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.4);
   }
   .panel-overlay > * { pointer-events: auto; }
 
@@ -1582,6 +1581,16 @@
     box-shadow: 0 0 8px rgba(255,140,0,0.3);
     font-weight: 800;
   }
+
+  /* ── MAP PICKER MODAL ── */
+  #mapa-picker-modal {
+    display: flex;
+    flex-direction: column;
+  }
+  #mapa-selector {
+    flex: 1;
+    min-height: 0;
+  }
 </style>
 </head>
 <body>
@@ -1914,18 +1923,6 @@
     <div id="destinos-rapidos" style="margin-bottom:10px;display:none">
       <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:6px">Recientes:</div>
       <div id="destinos-rapidos-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-    </div>
-
-    <!-- Mini-mapa selector -->
-    <div id="mapa-selector-wrap" style="display:none;margin-bottom:12px">
-      <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--accent);
-                  margin-bottom:6px;padding:6px 10px;background:var(--accent-dim);
-                  border-radius:var(--radius-sm)">
-        📌 Tocá el mapa para seleccionar <b id="mapa-selector-label">el punto</b>
-        &nbsp;<button onclick="cerrarMapaSelector()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;float:right">✕</button>
-      </div>
-      <div id="mapa-selector" style="height:240px;border-radius:var(--radius-sm);
-           border:1px solid var(--border);z-index:0"></div>
     </div>
 
     <div class="addr-hint" style="margin-bottom:12px">
@@ -4115,63 +4112,75 @@ let _selectorTarget = null; // 'origen' | 'destino'
 let _selectorMarker = null;
 
 function abrirMapaSelector(target) {
-    _selectorTarget = target;
-    const wrap = document.getElementById('mapa-selector-wrap');
-    const label = document.getElementById('mapa-selector-label');
-    wrap.style.display = 'block';
-    label.textContent = target === 'origen' ? 'el ORIGEN' : 'el DESTINO';
+    _mapaSelectorTarget = target;
+    const modal = document.getElementById('mapa-picker-modal');
+    const confirm = document.getElementById('mapa-picker-confirm');
+    const addrEl  = document.getElementById('mapa-picker-addr');
+    if (!modal) return;
 
-    if (_selectorMap) {
-        _selectorMap.invalidateSize();
-        return;
-    }
+    // Mostrar modal
+    modal.style.display = 'flex';
+    if (confirm) confirm.style.display = 'none';
+    if (addrEl)  addrEl.textContent = '';
 
-    // Intentar centrar en Uruguay por defecto
-    const defaultLat = -32.5, defaultLon = -55.7;
-    _selectorMap = L.map('mapa-selector', { zoomControl: true }).setView([defaultLat, defaultLon], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap', maxZoom: 18
-    }).addTo(_selectorMap);
+    // Inicializar o reusar el mapa selector
+    setTimeout(() => {
+        if (_selectorMap) { _selectorMap.invalidateSize(); return; }
+        const defaultLat = _lastGPS?.lat || -34.9;
+        const defaultLon = _lastGPS?.lon || -56.2;
+        _selectorMap = L.map('mapa-selector', { zoomControl: true }).setView([defaultLat, defaultLon], 12);
+        const s = MAP_STYLES[_mapStyle] || MAP_STYLES.nav;
+        L.tileLayer(s.url, { attribution: s.attr, subdomains: s.sub, maxZoom: 19 }).addTo(_selectorMap);
 
-    _selectorMap.on('click', async (e) => {
-        const { lat, lng } = e.latlng;
-        // Actualizar marcador
-        if (_selectorMarker) _selectorMarker.remove();
-        _selectorMarker = L.marker([lat, lng]).addTo(_selectorMap);
+        // Marcador temporal
+        let tmpMarker = null;
+        _selectorMap.on('click', async e => {
+            const { lat, lng } = e.latlng;
+            if (tmpMarker) tmpMarker.remove();
+            tmpMarker = L.marker([lat, lng]).addTo(_selectorMap);
 
-        // Reverse geocode
-        try {
-            const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`, {
-                headers: { 'Accept-Language': 'es' }
-            });
-            const data = await r.json();
-            const addr = data.address || {};
-            const partes = [addr.road, addr.house_number, addr.suburb || addr.neighbourhood,
-                            addr.city || addr.town || addr.municipality].filter(Boolean);
-            const nombre = partes.join(', ') || data.display_name?.split(',').slice(0,3).join(',') || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            // Geocodificación inversa para mostrar dirección
+            if (addrEl) addrEl.textContent = '⌛ Obteniendo dirección...';
+            if (confirm) confirm.style.display = 'block';
 
-            const inpId = _selectorTarget === 'origen' ? 'r_origen' : 'r_destino';
-            const hintId = _selectorTarget === 'origen' ? 'origen-hint' : 'destino-hint';
-            const inp = document.getElementById(inpId);
-            inp.value = nombre;
-            inp.dataset.lat = lat;
-            inp.dataset.lon = lng;
-            inp.dataset.resolvedName = nombre;
-            document.getElementById(hintId).innerHTML = `<b>✓</b> ${nombre}`;
-
-            _selectorMarker.bindPopup(`<b>${nombre}</b>`).openPopup();
-        } catch(e) {
-            const inpId = _selectorTarget === 'origen' ? 'r_origen' : 'r_destino';
-            const inp = document.getElementById(inpId);
-            inp.value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-            inp.dataset.lat = lat;
-            inp.dataset.lon = lng;
-            inp.dataset.resolvedName = inp.value;
-        }
-    });
-
-    setTimeout(() => _selectorMap.invalidateSize(), 200);
+            try {
+                const r = await fetch(
+                    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+                    { headers: { 'Accept-Language': 'es' } }
+                );
+                const d = await r.json();
+                const addr = d?.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                if (addrEl) addrEl.textContent = addr;
+                // Guardar coords temporalmente
+                _pickerLat = lat; _pickerLon = lng; _pickerAddr = addr;
+            } catch(err) {
+                if (addrEl) addrEl.textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                _pickerLat = lat; _pickerLon = lng; _pickerAddr = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            }
+        });
+    }, 100);
 }
+
+let _pickerLat = null, _pickerLon = null, _pickerAddr = '';
+
+function confirmarPuntoMapa() {
+    if (_pickerLat === null) return;
+    const target = _mapaSelectorTarget || 'destino';
+    const inp = document.getElementById(target === 'destino' ? 'r_destino' : 'r_origen');
+    if (inp) {
+        inp.value = _pickerAddr;
+        inp.dataset.lat = _pickerLat;
+        inp.dataset.lon = _pickerLon;
+        inp.dataset.resolvedName = _pickerAddr;
+        // Actualizar hint
+        const hintId = target === 'destino' ? 'destino-hint' : 'origen-hint';
+        const hint = document.getElementById(hintId);
+        if (hint) hint.innerHTML = `<b>📍</b> ${_pickerAddr}`;
+    }
+    cerrarMapaSelector();
+    validarBotonBuscar();
+}
+
 
 function cerrarMapaSelector() {
     document.getElementById('mapa-selector-wrap').style.display = 'none';
@@ -4287,39 +4296,34 @@ async function buscarRuta() {
                 ) + `</div>`;
         }
 
-        // Mostrar route-map ANTES de renderizar (Leaflet necesita dimensiones reales)
+        // 1. Mostrar route-map ANTES que Leaflet lo inicialice (necesita dimensiones reales)
         mostrarRouteOverlay();
-
-        // Mostrar barra de info de la ruta
         resEl.innerHTML = routeInfoHtml;
 
-        // Render map AHORA que route-map ya es visible
-        setTimeout(() => {
-            renderMap();
+        // 2. Inicializar Leaflet con route-map ya visible
+        setTimeout(() => renderMap(), 120);
 
-            // Auto-planificar con cargadores si hay estaciones
-            if (estaciones.length > 0) {
-                setTimeout(() => {
-                    planificarViajeRuta();
-                    // Mostrar lista de cargadores colapsable
-                    const tripEl2 = document.getElementById('trip-result');
-                    const existente = tripEl2?.innerHTML || '';
-                    const chipsSection = `<div class="section-card" style="margin-top:12px">
+        // 3. Calcular paradas y mostrar resultados
+        setTimeout(() => {
+            planificarViajeRuta();
+
+            // 4. Agregar lista de cargadores colapsable DESPUÉS de las paradas
+            if (estaciones.length > 0 && chipsHtml) {
+                const tripEl = document.getElementById('trip-result');
+                if (tripEl) {
+                    tripEl.innerHTML += `<div class="section-card" style="margin-top:12px">
                         <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
                             <div class="section-icon" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25)">⚡</div>
-                            <div class="section-title">Ver cargadores en ruta (${estaciones.length})</div>
+                            <div class="section-title">⚡ Cargadores en ruta (${estaciones.length})</div>
                         </div>
                         <div class="section-body collapsed">${chipsHtml}</div>
                     </div>`;
-                    if (tripEl2) tripEl2.innerHTML = chipsSection + existente.replace(/<div class="section-card".*cargadores en ruta.*$/s,'');
-                }, 300);
+                }
             }
-        }, 120);
+        }, 350);
 
-        // Radares en paralelo
-        cargarRadares(coords, distKm).then(radares => {
-            if (radares.length) mostrarRadaresEnMapa(radares);
-        });
+        // Radares en paralelo (no bloquea)
+        cargarRadares(coords, distKm).then(r => { if (r.length) mostrarRadaresEnMapa(r); });
 
     } catch(e) {
         resEl.innerHTML = `<div class="loading-msg" style="color:#f87171">⚠ ${e.message}</div>`;
@@ -6223,6 +6227,23 @@ function mostrarCityMap() {
 
 
 <!-- ══════════════ BOTTOM NAV ══════════════ -->
+
+<!-- ══ MAP PICKER MODAL — selector de destino en mapa completo ══ -->
+<div id="mapa-picker-modal" style="display:none;position:fixed;inset:0;z-index:600;background:var(--bg);flex-direction:column">
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0">
+    <button onclick="cerrarMapaSelector()" style="background:none;border:none;color:var(--text);font-size:22px;cursor:pointer">✕</button>
+    <div>
+      <div style="font-size:14px;font-weight:800;font-family:'Nunito Sans',sans-serif">📌 Seleccionar destino</div>
+      <div id="mapa-selector-label" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text-muted)">Tocá el mapa para elegir el punto</div>
+    </div>
+  </div>
+  <div id="mapa-selector" style="flex:1;min-height:0"></div>
+  <div id="mapa-picker-confirm" style="display:none;padding:12px 14px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0">
+    <div id="mapa-picker-addr" style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:8px"></div>
+    <button class="btn" onclick="confirmarPuntoMapa()" style="width:100%">✅ Confirmar destino</button>
+  </div>
+</div>
+
 <nav class="bottom-nav">
   <button class="nav-btn active" id="nav-vehiculo" onclick="switchPanel('vehiculo')">
     <span class="nav-icon">⚙️</span>
@@ -6275,10 +6296,17 @@ function mostrarCityMap() {
     </div>
   </div>
 
-  <!-- Botón detener (visible siempre) -->
-  <div style="display:flex;justify-content:flex-end;margin-top:4px">
-    <button class="nav-btn-action nav-btn-stop" onclick="detenerNavegacion()" style="font-size:11px">⏹ Detener navegación</button>
-  </div>
+  <!-- Botón detener — flotante en la parte inferior del mapa -->
+  <button onclick="detenerNavegacion()"
+          style="position:fixed;bottom:75px;left:50%;transform:translateX(-50%);
+                 z-index:520;
+                 background:#f87171;border:none;border-radius:24px;
+                 color:#fff;font-family:'Nunito Sans',sans-serif;font-weight:800;
+                 font-size:14px;padding:10px 28px;
+                 box-shadow:0 4px 16px rgba(248,113,113,0.5);
+                 cursor:pointer;white-space:nowrap">
+    ⏹ Detener navegación
+  </button>
 </div>
 
 <!-- ── TOAST ── -->
