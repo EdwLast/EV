@@ -764,7 +764,7 @@
   .panel-overlay {
     position: fixed;
     left: 0; right: 0;
-    bottom: 62px;
+    bottom: 0;
     z-index: 15;
     max-height: 60vh;
     overflow-y: auto;
@@ -921,7 +921,7 @@
   /* ── CHARGER SELECTED BOTTOM SHEET ── */
   .charger-selected-card {
     position: fixed;
-    bottom: 62px;
+    bottom: 10px;
     left: 0; right: 0;
     background: var(--surface);
     border-top: 2px solid var(--accent);
@@ -1662,9 +1662,13 @@
 <span id="modo-ruta" style="display:none"></span>
 
 <!-- ══════════════ PANEL CONFIG ══════════════ -->
-<div class="page-panel" id="panel-vehiculo">
+<div id="panel-vehiculo" style="display:none;position:fixed;inset:0;z-index:600;background:var(--bg);overflow-y:auto;padding:14px 14px 80px">
 
 <!-- SELECTOR DE VEHÍCULO -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <span style="font-family:'Nunito Sans',sans-serif;font-weight:800;font-size:16px">⚙️ Configuración</span>
+    <button onclick="cerrarConfig()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">✕</button>
+  </div>
 <div class="vehicle-card">
   <div class="card-title">Seleccionar vehículo</div>
   <div class="vehicle-selects">
@@ -1763,11 +1767,25 @@
   </div>
 </div>
 
+
+<!-- SELECTOR DE VOZ -->
+<div class="vehicle-card" style="margin-top:10px">
+  <div class="card-title">🗣️ Voz del asistente</div>
+  <div class="field-group" style="margin-top:8px">
+    <label class="field-label">Voz de navegación</label>
+    <select id="voz-selector" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Nunito Sans',sans-serif;font-size:13px"
+            onchange="setVozSeleccionada(this.value)">
+      <option value="">Voz por defecto</option>
+    </select>
+    <button class="btn" style="margin-top:8px;padding:6px" onclick="probarVoz()">🔊 Probar voz</button>
+  </div>
+</div>
+
 </div><!-- /panel-vehiculo -->
 
 
 <!-- ══════════════ PANEL 2: SIMULACIONES DE CARGA ══════════════ -->
-<div class="page-panel" id="panel-viaje">
+<div id="panel-viaje" style="position:fixed;inset:0;bottom:0">
 
 <!-- Campos ocultos globales -->
 <input type="hidden" id="capacidad" value="38.8">
@@ -1780,9 +1798,28 @@
 <!-- Drawer hamburguesa (simulaciones) -->
 <div class="ham-drawer" id="ham-drawer">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <span style="font-family:'Nunito Sans',sans-serif;font-weight:800;font-size:15px">🔋 Simulaciones</span>
+    <span style="font-family:'Nunito Sans',sans-serif;font-weight:800;font-size:15px">☰ Menú</span>
     <button onclick="toggleHamDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button>
   </div>
+
+  <!-- Config / Vehículo -->
+  <div class="section-card" style="margin-bottom:10px">
+    <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
+      <div class="section-icon" style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3)">⚙️</div>
+      <div class="section-title">Configuración</div>
+    </div>
+    <div class="section-body collapsed" id="ham-config-body">
+      <!-- Contenido inyectado dinámicamente desde panel-vehiculo -->
+      <button onclick="toggleHamDrawer(); abrirConfig()"
+              style="width:100%;padding:12px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.3);
+              border-radius:8px;color:#818cf8;font-family:'Nunito Sans',sans-serif;font-weight:700;
+              font-size:13px;cursor:pointer;margin-bottom:4px">
+        ⚙️ Abrir Configuración completa ›
+      </button>
+    </div>
+  </div>
+
+  <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:8px;padding-left:2px">🔋 SIMULACIONES</div>
 
   <!-- Cálculo por porcentaje -->
   <div class="section-card">
@@ -1960,19 +1997,11 @@ let modoConsumo = 'ciudad'; // 'ciudad' | 'ruta'
 
 // ── NAVEGACIÓN ENTRE PANELES ──
 function switchPanel(panel) {
-    // Solo 2 paneles: vehiculo (Config) y viaje
-    ['vehiculo','viaje'].forEach(p => {
-        document.getElementById('panel-' + p)?.classList.toggle('active', p === panel);
-    });
-    document.getElementById('nav-vehiculo')?.classList.toggle('active', panel === 'vehiculo');
-    document.getElementById('nav-viaje')?.classList.toggle('active', panel === 'viaje');
-    localStorage.setItem('ev-panel', panel);
+    if (panel === 'vehiculo') { abrirConfig(); return; }
+    // Mapa es siempre el fondo — no hay otras pantallas
     if (panel === 'viaje') {
-        // Re-renderizar mapa si hay ruta pendiente
         if (window._rutaData?.coords) setTimeout(() => renderMap(), 150);
-        // Auto-cargar cargadores cercanos en el mapa
         setTimeout(() => autoCargarMapaCiudad(), 300);
-        // Auto-fill origen GPS
         setTimeout(() => autoFillOrigen(), 200);
     }
 }
@@ -4895,7 +4924,23 @@ async function getOrigenCoords() {
     });
 }
 
+
+// Limpiar todos los datos del viaje anterior
+function limpiarViajePrevio() {
+    window._rutaData = null;
+    limpiarZonaCirculos();
+    const tripEl = document.getElementById('trip-result');
+    if (tripEl) tripEl.innerHTML = '';
+    const resEl  = document.getElementById('route-search-result');
+    if (resEl)  resEl.innerHTML = '';
+    const acEl   = document.getElementById('viaje-acciones');
+    if (acEl)   acEl.style.display = 'none';
+    const overlay = document.getElementById('route-overlay');
+    if (overlay) { overlay.style.display = 'none'; overlay.style.height = ''; }
+}
 async function accionRuta() {
+    // Limpiar viaje anterior antes de calcular el nuevo
+    limpiarViajePrevio();
     const resBtn = document.getElementById('btn-buscar-ruta');
 
     // ── Paso 1: Obtener origen (GPS) ──
@@ -5603,6 +5648,9 @@ async function iniciarNavegacion() {
     _navActivo = true;
     precargarVoces();
     iniciarVozHeartbeat(); // iniciar heartbeat desde el comienzo (iOS fix)
+    // Mostrar botón Detener flotante
+    const detFloat = document.getElementById('btn-detener-float');
+    if (detFloat) detFloat.style.display = 'block';
     // Ocultar botón Viaje durante navegación
     const fab = document.getElementById('viaje-fab');
     if (fab) fab.style.display = 'none'; // asegurar que las voces están cargadas antes del primer anuncio
@@ -5641,6 +5689,9 @@ async function iniciarNavegacion() {
 
 function detenerNavegacion() {
     _navActivo = false;
+    // Ocultar botón Detener flotante
+    const detFloat2 = document.getElementById('btn-detener-float');
+    if (detFloat2) detFloat2.style.display = 'none';
     // Restaurar botón Viaje al detener
     const fab = document.getElementById('viaje-fab');
     if (fab) fab.style.display = '';
@@ -6288,6 +6339,69 @@ function mostrarCityMap() {
 
 
 // ── MENÚ HAMBURGUESA ──
+
+
+// ── Selector de voz ──
+function cargarOpcionesVoz() {
+    const sel = document.getElementById('voz-selector');
+    if (!sel || !window.speechSynthesis) return;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return;
+    const saved = localStorage.getItem('ev-voz-name') || '';
+    // Limpiar y llenar opciones
+    sel.innerHTML = '<option value="">Voz por defecto (español)</option>';
+    voices.forEach(v => {
+        if (v.lang.startsWith('es') || v.lang.startsWith('ca') || v.lang.startsWith('gl')) {
+            const opt = document.createElement('option');
+            opt.value = v.name;
+            opt.textContent = `${v.name} (${v.lang})${v.localService ? ' 📱' : ' 🌐'}`;
+            if (v.name === saved) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    });
+    // Cargar también voces no-español al final
+    voices.forEach(v => {
+        if (!v.lang.startsWith('es') && !v.lang.startsWith('ca') && !v.lang.startsWith('gl')) {
+            const opt = document.createElement('option');
+            opt.value = v.name;
+            opt.textContent = `${v.name} (${v.lang})`;
+            if (v.name === saved) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    });
+}
+
+function setVozSeleccionada(name) {
+    localStorage.setItem('ev-voz-name', name);
+    // Actualizar _vozEspañol
+    if (!name) { _vozEspañol = null; precargarVoces(); return; }
+    const voices = window.speechSynthesis?.getVoices() || [];
+    _vozEspañol = voices.find(v => v.name === name) || null;
+    guardarConfiguracion();
+}
+
+function probarVoz() {
+    const texto = 'En 300 metros, tome la salida a la derecha';
+    anunciar(texto);
+}
+
+// Cargar voces al abrir Config
+if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = () => {
+        cargarOpcionesVoz();
+        precargarVoces();
+    };
+    setTimeout(cargarOpcionesVoz, 500);
+}
+function abrirConfig() {
+    const pv = document.getElementById('panel-vehiculo');
+    if (pv) pv.style.display = 'block';
+    setTimeout(cargarOpcionesVoz, 200);
+}
+function cerrarConfig() {
+    const pv = document.getElementById('panel-vehiculo');
+    if (pv) pv.style.display = 'none';
+}
 function toggleHamDrawer() {
     const d = document.getElementById('ham-drawer');
     if (d) d.classList.toggle('open');
@@ -6429,16 +6543,7 @@ function calcularHamKm() {
   </div>
 </div>
 
-<nav class="bottom-nav">
-  <button class="nav-btn active" id="nav-vehiculo" onclick="switchPanel('vehiculo')">
-    <span class="nav-icon">⚙️</span>
-    <span class="nav-label">Config</span>
-  </button>
-  <button class="nav-btn" id="nav-viaje" onclick="switchPanel('viaje')">
-    <span class="nav-icon">🗺️</span>
-    <span class="nav-label">Viaje</span>
-  </button>
-</nav>
+<!-- SIN BOTTOM NAV — todo está en el mapa y el menú hamburguesa -->
 
 
 <!-- ── FULLSCREEN EXIT / MAXIMIZE BUTTONS ── -->
@@ -6467,8 +6572,7 @@ function calcularHamKm() {
         <div class="nav-prox-dist" id="nav-prox-dist"></div>
       </div>
       <div class="nav-overlay-btns">
-        <button class="nav-btn-action nav-btn-fwd" onclick="avanzarParada(false)" title="Siguiente parada">⏭</button>
-        <button class="nav-btn-action nav-btn-stop" onclick="detenerNavegacion()" title="Detener">⏹</button>
+        <button class="nav-btn-action nav-btn-fwd" onclick="avanzarParada(false)" title="Marcar parada como visitada y continuar">⏭</button>
       </div>
     </div>
     <div class="nav-radio-row" id="nav-radio-row">
@@ -6481,16 +6585,16 @@ function calcularHamKm() {
     </div>
   </div>
 
-  <!-- Botón detener — flotante en la parte inferior del mapa -->
-  <button onclick="detenerNavegacion()"
-          style="position:fixed;bottom:75px;left:50%;transform:translateX(-50%);
+  <!-- Botón detener — debajo del panel de instrucciones (top fijo) -->
+  <button id="btn-detener-float" onclick="detenerNavegacion()"
+          style="display:none;position:fixed;top:74px;right:12px;
                  z-index:520;
-                 background:#f87171;border:none;border-radius:24px;
+                 background:#f87171;border:none;border-radius:20px;
                  color:#fff;font-family:'Nunito Sans',sans-serif;font-weight:800;
-                 font-size:14px;padding:10px 28px;
-                 box-shadow:0 4px 16px rgba(248,113,113,0.5);
+                 font-size:12px;padding:7px 14px;
+                 box-shadow:0 3px 12px rgba(248,113,113,0.5);
                  cursor:pointer;white-space:nowrap">
-    ⏹ Detener navegación
+    ⏹ Detener
   </button>
 </div>
 
