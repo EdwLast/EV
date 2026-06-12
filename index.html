@@ -1908,7 +1908,7 @@
 
 <!-- Botón Viaje flotante -->
 <button class="viaje-fab" onclick="toggleViajeDrawer()">
-  ✈️ Viaje
+  📍 ¿A dónde vas?
 </button>
 
 <!-- Drawer de ruta (colapsable desde arriba, se abre al tocar ✈️ Viaje) -->
@@ -1987,14 +1987,6 @@
 <div id="viaje-acciones" style="display:none;gap:10px;margin-bottom:10px;flex-wrap:wrap" class="trip-actions">
   <button class="btn-guardar" onclick="guardarViaje()">💾 Guardar</button>
   <button class="btn-iniciar" onclick="iniciarNavegacion()">▶ Iniciar navegación</button>
-  <label class="toggle-label" title="Mostrar zonas" style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--text-muted);font-family:'Nunito Sans',sans-serif;font-weight:700">
-    <div class="toggle-switch" id="toggle-zonas-wrap" onclick="toggleZonaCirculos()">
-      <div class="toggle-knob" id="toggle-zonas-knob"></div>
-    </div>
-    🎯 Zonas
-    <input type="range" id="zona-opacidad" min="5" max="50" value="50"
-           style="width:64px;accent-color:var(--accent);display:none" oninput="setZonaOpacidad(this.value)">
-  </label>
   <button onclick="mostrarCityMap()"
           style="background:rgba(239,68,68,0.1);border:2px solid #ef4444;border-radius:8px;color:#ef4444;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">
     ✕ Mapa
@@ -3775,15 +3767,19 @@ const ZONE_CLASSES = ['chip-z0','chip-z1','chip-z2','chip-z3','chip-z4','chip-z5
 // ── Legend HTML builder ──
 function buildLegendHtml(tramosIniciales, zonas, zoneColors) {
     const paradaTramos = tramosIniciales.filter(t => !t.esFinal);
+    const destTramo    = tramosIniciales.find(t => t.esFinal);
     let html = `<div class="zone-legend">`;
+    let kmPrev = 0;
     paradaTramos.forEach((t, i) => {
         const color = zoneColors[i] || '#888';
         const label = i === 0 ? 'Salida → Parada 1' : `Parada ${i} → Parada ${i+1}`;
-        html += `<div class="zone-legend-item"><div class="zone-dot" style="background:${color}"></div><span>${label}</span></div>`;
+        html += `<div class="zone-legend-item"><div class="zone-dot" style="background:${color}"></div><span>${label} <span style="color:var(--text-muted);font-family:'DM Mono',monospace;font-size:10px">(km ${kmPrev} – km ${t.kmAcum})</span></span></div>`;
+        kmPrev = t.kmAcum;
     });
     if (paradaTramos.length > 0) {
         const last = paradaTramos.length;
-        html += `<div class="zone-legend-item"><div class="zone-dot" style="background:${zoneColors[last]||'#888'}"></div><span>Parada ${last} → Destino</span></div>`;
+        const kmDest = destTramo?.kmAcum ?? kmPrev;
+        html += `<div class="zone-legend-item"><div class="zone-dot" style="background:${zoneColors[last]||'#888'}"></div><span>Parada ${last} → Destino <span style="color:var(--text-muted);font-family:'DM Mono',monospace;font-size:10px">(km ${kmPrev} – km ${kmDest})</span></span></div>`;
     }
     if (Object.values(zonas).some(z => z === -1))
         html += `<div class="zone-legend-item"><div class="zone-dot" style="background:#444"></div><span>Fuera del recorrido</span></div>`;
@@ -4040,16 +4036,10 @@ function renderMap() {
     ];
     if (allPoints.length) _leafletMap.fitBounds(L.latLngBounds(allPoints), { padding: [20, 20] });
 
-    // Restaurar estado del toggle de zonas
-    // Activar zonas siempre al planificar
-    _mostrarZonas = true;
-    document.getElementById('toggle-zonas-wrap')?.classList.toggle('on', _mostrarZonas);
-    const _sliderEl = document.getElementById('zona-opacidad');
-    if (_sliderEl) {
-        _sliderEl.style.display = _mostrarZonas ? '' : 'none';
-        _sliderEl.value = Math.round(_zonaOpacidad * 100);
+    // Pintar la ruta por tramos (color de cada parada) en lugar de círculos de zona
+    if (window._rutaData?.tramosIniciales?.length) {
+        pintarTramosRuta(coords, window._rutaData.tramosIniciales, distKmDeRuta(coords));
     }
-    if (_mostrarZonas) setTimeout(dibujarZonaCirculos, 200);
 
     // Show speed cameras if already loaded
     mostrarRadaresEnMapa(_navRadares);
@@ -4285,6 +4275,8 @@ function desactivarTapModeCity() {
     if (_cityMap) _cityMap.off('click', _onCityTap);
     const banner = document.getElementById('city-tap-banner');
     if (banner) banner.style.display = 'none';
+    // Restaurar estilo de mapa del usuario si se cancela sin elegir
+    if (_mapStylePrevia) { setMapStyle(_mapStylePrevia); _mapStylePrevia = null; }
 }
 
 // Fallback: modal fullscreen si no hay city-map disponible
@@ -4337,6 +4329,8 @@ function confirmarPuntoMapa() {
     }
     cerrarMapaSelector();
     validarBotonBuscar();
+    // Restaurar el estilo de mapa del usuario
+    if (_mapStylePrevia) { setMapStyle(_mapStylePrevia); _mapStylePrevia = null; }
 }
 
 
@@ -4610,7 +4604,7 @@ function planificarViajeRuta() {
 
     renderViaje(tramos);
 
-    // Sobreescribir tramosIniciales con los que tienen lat/lon para dibujarZonaCirculos
+    // Sobreescribir tramosIniciales con los que tienen lat/lon para pintarTramosRuta
     if (window._rutaData) window._rutaData.tramosIniciales = tramos;
 
     // Mostrar botones Guardar + Iniciar Navegación
@@ -6173,73 +6167,59 @@ let _zonaCirculos = [];
 let _mostrarZonas = localStorage.getItem('ev-zonas-circulo') !== '0'; // activo por defecto
 let _zonaOpacidad = parseFloat(localStorage.getItem('ev-zonas-opacidad') || '50') / 100;
 
-function toggleZonaCirculos() {
-    _mostrarZonas = !_mostrarZonas;
-    localStorage.setItem('ev-zonas-circulo', _mostrarZonas ? '1' : '0');
-    // Activar zonas siempre al planificar
-    _mostrarZonas = true;
-    document.getElementById('toggle-zonas-wrap')?.classList.toggle('on', _mostrarZonas);
-    const slider = document.getElementById('zona-opacidad');
-    if (slider) slider.style.display = _mostrarZonas ? '' : 'none';
-    if (_mostrarZonas) dibujarZonaCirculos();
-    else limpiarZonaCirculos();
-}
-
-function setZonaOpacidad(val) {
-    _zonaOpacidad = parseFloat(val) / 100;
-    localStorage.setItem('ev-zonas-opacidad', val);
-    if (_mostrarZonas) dibujarZonaCirculos(); // redibujar con nueva opacidad
-}
+// (Zonas reemplazadas por tramos de ruta coloreados — ver pintarTramosRuta)
 
 function limpiarZonaCirculos() {
     _zonaCirculos.forEach(c => { try { _leafletMap?.removeLayer(c); } catch(e) {} });
     _zonaCirculos = [];
 }
 
-function dibujarZonaCirculos() {
-    if (!_leafletMap || !window._rutaData) return;
-    limpiarZonaCirculos();
+// Distancia total de la ruta (km) a partir de los puntos [lat,lon]
+function distKmDeRuta(coords) {
+    let total = 0;
+    for (let i = 1; i < coords.length; i++) {
+        total += haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]);
+    }
+    return total;
+}
 
-    // Usar tramosIniciales (sobrescrito en planificarViajeRuta con lat/lon)
-    const tramos    = window._rutaData.tramosIniciales || window._rutaData.tramos;
-    const origCoord = window._rutaData.origCoord;
-    if (!tramos?.length || !origCoord) return;
+// Pinta la polyline de la ruta en segmentos, cada uno con el color de la
+// parada de carga a la que pertenece (en vez de círculos de "zona").
+// El segmento [kmPrev, kmAcum] representa el tramo que el conductor recorre
+// antes de llegar a esa parada — exactamente el rango que debe completar
+// con la carga disponible.
+function pintarTramosRuta(coords, tramos, distTotalKm) {
+    if (!_leafletMap || !coords?.length || !tramos?.length || !distTotalKm) return;
 
-    const lat0 = origCoord.lat, lon0 = origCoord.lon;
-    if (!isFinite(lat0) || !isFinite(lon0)) return;
+    const ZONA_COLOR = ['#f87171','#fb923c','#fbbf24','#34d399','#60a5fa','#a78bfa'];
 
-    const paradas = tramos.filter(t => !t.esFinal);
-    const destKm  = tramos.find(t => t.esFinal)?.kmAcum || 0;
+    // Distancia acumulada de cada punto de la ruta
+    const acumKm = [0];
+    for (let i = 1; i < coords.length; i++) {
+        acumKm.push(acumKm[i-1] + haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]));
+    }
 
-    const puntos = [{ lat: lat0, lon: lon0, kmAcum: 0 }];
-    paradas.forEach(t => {
-        // Usar coordenadas del tramo si existen y son válidas, sino el origen como fallback
-        const lat = isFinite(t.lat) ? t.lat : lat0;
-        const lon = isFinite(t.lon) ? t.lon : lon0;
-        puntos.push({ lat, lon, kmAcum: t.kmAcum });
-    });
+    // Límites de cada tramo: 0 → tramo1.kmAcum → tramo2.kmAcum → ... → destino
+    let kmPrev = 0;
+    tramos.forEach((t, i) => {
+        const kmFin = Math.min(t.kmAcum, distTotalKm);
+        if (kmFin <= kmPrev) { kmPrev = kmFin; return; }
 
-    const ZONA_FILL = ['#f87171','#fb923c','#fbbf24','#34d399','#60a5fa','#a78bfa'];
-    const fillOp = Math.max(0.18, _zonaOpacidad);
-    const bordOp = Math.min(1, fillOp * 2.5);
-
-    puntos.forEach((p, i) => {
-        // El último punto es la última parada → destino: no dibujar (confunde al conductor)
-        if (i === puntos.length - 1) return;
-        const nextKm  = puntos[i + 1].kmAcum;
-        const radioKm = nextKm - p.kmAcum;
-        if (radioKm < 2) return;
-        const color = ZONA_FILL[i % ZONA_FILL.length];
-        try {
-            const c = L.circle([p.lat, p.lon], {
-                radius:      radioKm * 1000,
-                fillColor:   color, fillOpacity: fillOp,
-                color:       color, opacity:     bordOp,
-                weight:      1,
-                interactive: false,  // ← crítico: evita event listeners en el SVG gigante
-            }).addTo(_leafletMap);
-            _zonaCirculos.push(c);
-        } catch(e) { console.error('zona circle:', e); }
+        // Extraer los puntos de la ruta cuyo km acumulado está en [kmPrev, kmFin]
+        const seg = [];
+        for (let j = 0; j < coords.length; j++) {
+            if (acumKm[j] >= kmPrev - 0.05 && acumKm[j] <= kmFin + 0.05) seg.push(coords[j]);
+        }
+        if (seg.length >= 2) {
+            const color = t.zonaColor || ZONA_COLOR[i % ZONA_COLOR.length];
+            try {
+                const poly = L.polyline(seg, {
+                    color, weight: 6, opacity: 0.85, lineCap: 'round', interactive: false
+                }).addTo(_leafletMap);
+                _zonaCirculos.push(poly); // reutilizamos el mismo array para poder limpiar
+            } catch(e) { console.error('pintarTramosRuta:', e); }
+        }
+        kmPrev = kmFin;
     });
 }
 
@@ -6355,6 +6335,8 @@ function mostrarToast(msg, duracion = 3200) {
     _toastTimer = setTimeout(() => el.classList.remove('show'), duracion);
 }
 // ── DRAWER VIAJE: toggle abre/cierra panel con Desde/¿A dónde vas? ──
+let _mapStylePrevia = null; // guarda el estilo del usuario antes de cambiar a Detalle
+
 function toggleViajeDrawer() {
     const drawer = document.getElementById('viaje-drawer');
     if (!drawer) return;
@@ -6362,8 +6344,16 @@ function toggleViajeDrawer() {
     if (isOpen) {
         refrescarOrigenGPS();
         renderDestinosRapidos();
+        // Cambiar a mapa "Detalle" para poder marcar el punto exacto
+        if (_mapStyle !== 'detalle') {
+            _mapStylePrevia = _mapStyle;
+            setMapStyle('detalle');
+        }
         // Focus en el campo destino
         setTimeout(() => document.getElementById('r_destino')?.focus(), 300);
+    } else {
+        // Al cerrar sin confirmar, restaurar estilo del usuario
+        if (_mapStylePrevia) { setMapStyle(_mapStylePrevia); _mapStylePrevia = null; }
     }
 }
 
@@ -6576,6 +6566,7 @@ function sincronizarPotenciaCosto() {
 function calcularHamPorcentaje() {
     const cap     = parseFloat(document.getElementById('capacidad')?.value) || 50;
     const pot     = parseFloat(document.getElementById('potencia')?.value)  || 7;
+    const costo   = parseFloat(document.getElementById('costo')?.value)     || 4.5;
     const inicio  = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
     const fin     = parseFloat(document.getElementById('ham-fin')?.value)    || 80;
     const energia = ((fin - inicio) / 100) * cap;
@@ -6583,7 +6574,7 @@ function calcularHamPorcentaje() {
     const resEl   = document.getElementById('ham-resultado1');
     if (resEl) resEl.innerHTML = `
         <b>${energia.toFixed(1)} kWh</b> · <b>${fmtTiempo(horas)}</b>
-        ${pot <= 22 ? `· <span style="color:var(--success)">$${(54.8 + energia*10.4).toFixed(0)} UYU</span>` : `· <span style="color:var(--success)">$${(132.9 + energia*11.8).toFixed(0)} UYU</span>`}`;
+        · <span style="color:var(--success)">$${(energia*costo).toFixed(0)} UYU</span>`;
 }
 
 function calcularHamTiempo() {
