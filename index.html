@@ -77,7 +77,7 @@
     top: 0;
     z-index: 10;
     backdrop-filter: blur(10px);
-    display: none;
+    display: none; /* mapa ocupa toda la pantalla */
   }
 
   .header-inner {
@@ -742,21 +742,32 @@
 
   /* ── CITY CHARGER MAP ── */
   /* ── MAPA COMO FONDO (Carga, Viaje largo, Viaje Ciudad) ── */
-  #panel-carga.active,
-  #panel-viaje.active {
-    padding: 0;
-    background: transparent !important;
+  /* ── MAPA PRINCIPAL — ocupa toda la pantalla ── */
+  #city-map-fullscreen {
     position: fixed !important;
-    top: 0; left: 0; right: 0; bottom: 62px;
-    overflow: hidden;
-    z-index: 10;
+    top: 0; left: 0;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 5;
   }
-
-  /* Mapas: llenan el panel como fondo */
-  #panel-viaje.active #city-map,
-  #panel-viaje.active #route-map {
+  #panel-viaje {
+    position: fixed !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 5;
+    overflow: hidden;
+    background: #0a0e17;
+  }
+  #panel-viaje #city-map {
     position: absolute !important;
-    inset: 0;
+    top: 0; left: 0;
+    width: 100% !important;
+    height: 100% !important;
+    z-index: 1;
+  }
+  #panel-viaje #route-map {
+    position: absolute !important;
+    top: 0; left: 0;
+    width: 100% !important;
     height: 100% !important;
     z-index: 1;
   }
@@ -765,7 +776,7 @@
   .panel-overlay {
     position: fixed;
     left: 0; right: 0;
-    bottom: 62px;
+    bottom: 0;
     z-index: 15;
     max-height: 60vh;
     overflow-y: auto;
@@ -822,7 +833,7 @@
     background: rgba(248,250,255,0.93);
     border-color: rgba(0,0,0,0.09);
   }
-  #panel-viaje.active #carga-bottom-bar { display: block; }
+  #panel-viaje #carga-bottom-bar { display: block; }
 
   .cbb-row {
     display: flex;
@@ -922,7 +933,7 @@
   /* ── CHARGER SELECTED BOTTOM SHEET ── */
   .charger-selected-card {
     position: fixed;
-    bottom: 62px;
+    bottom: 10px;
     left: 0; right: 0;
     background: var(--surface);
     border-top: 2px solid var(--accent);
@@ -932,7 +943,7 @@
     display: none;
   }
   .charger-selected-card.visible { display: block; }
-  #panel-viaje.active .charger-selected-card.visible {
+  #panel-viaje .charger-selected-card.visible {
     bottom: 130px; /* por encima de la barra de % */
   }
   .cs-title {
@@ -961,15 +972,10 @@
     line-height: 1.8;
     color: var(--text-muted);
     margin-bottom: 10px;
-  }
     background: var(--accent-dim);
     border: 1px solid var(--accent);
     border-radius: var(--radius-sm);
     padding: 12px 14px;
-    margin-bottom: 12px;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    line-height: 1.9;
   }
 
   .charger-selected-card .cs-title {
@@ -1593,6 +1599,15 @@
     min-height: 0;
   }
 
+  /* ── OVERLAY DESLIZABLE ── */
+  #route-overlay {
+    transition: height 0.25s ease;
+    height: 45vh;           /* altura inicial */
+  }
+  #route-overlay.expanded  { height: 88vh; }
+  #route-overlay.collapsed { height: 56px; overflow: hidden; }
+  #overlay-drag-handle { touch-action: none; }
+
   /* ── MENÚ HAMBURGUESA ── */
   .ham-fab {
     position: absolute;
@@ -1659,9 +1674,13 @@
 <span id="modo-ruta" style="display:none"></span>
 
 <!-- ══════════════ PANEL CONFIG ══════════════ -->
-<div class="page-panel" id="panel-vehiculo">
+<div id="panel-vehiculo" style="display:none;position:fixed;inset:0;z-index:600;background:var(--bg);overflow-y:auto;padding:14px 14px 80px">
 
 <!-- SELECTOR DE VEHÍCULO -->
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <span style="font-family:'Nunito Sans',sans-serif;font-weight:800;font-size:16px">⚙️ Configuración</span>
+    <button onclick="cerrarConfig()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">✕</button>
+  </div>
 <div class="vehicle-card">
   <div class="card-title">Seleccionar vehículo</div>
   <div class="vehicle-selects">
@@ -1760,36 +1779,59 @@
   </div>
 </div>
 
+
+<!-- SELECTOR DE VOZ -->
+<div class="vehicle-card" style="margin-top:10px">
+  <div class="card-title">🗣️ Voz del asistente</div>
+  <div class="field-group" style="margin-top:8px">
+    <label class="field-label">Voz de navegación</label>
+    <select id="voz-selector" style="width:100%;padding:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'Nunito Sans',sans-serif;font-size:13px"
+            onchange="setVozSeleccionada(this.value)">
+      <option value="">Voz por defecto</option>
+    </select>
+    <button class="btn" style="margin-top:8px;padding:6px" onclick="probarVoz()">🔊 Probar voz</button>
+  </div>
+</div>
+
 </div><!-- /panel-vehiculo -->
 
 
 <!-- ══════════════ PANEL 2: SIMULACIONES DE CARGA ══════════════ -->
-<div class="page-panel" id="panel-viaje">
+<div id="panel-viaje" style="position:fixed;inset:0;bottom:0;z-index:20">
 
 <!-- Campos ocultos globales -->
 <input type="hidden" id="capacidad" value="38.8">
 <input type="hidden" id="consumo" value="8.8">
 <input type="hidden" id="consumo_ruta_vh" value="7.5">
 
-<!-- ☰ Hamburguesa (izq) + ✈️ Viaje (centro) -->
-<button class="ham-fab" onclick="toggleHamDrawer()" title="Menú">☰</button>
+<!-- Botón hamburguesa — simulaciones de carga -->
+<button class="ham-fab" onclick="toggleHamDrawer()" title="Simulaciones">☰</button>
 
-<!-- Drawer hamburguesa -->
+<!-- Drawer hamburguesa (simulaciones) -->
 <div class="ham-drawer" id="ham-drawer">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
     <span style="font-family:'Nunito Sans',sans-serif;font-weight:800;font-size:15px">☰ Menú</span>
-    <button onclick="toggleHamDrawer()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">✕</button>
+    <button onclick="toggleHamDrawer()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">✕</button>
   </div>
 
-  <!-- Acceso a Config -->
-  <button onclick="toggleHamDrawer();switchPanel('vehiculo')"
-          style="width:100%;padding:12px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.3);
-          border-radius:8px;color:#818cf8;font-family:'Nunito Sans',sans-serif;font-weight:700;
-          font-size:14px;cursor:pointer;margin-bottom:12px;text-align:left">
-    ⚙️ Configuración del vehículo ›
-  </button>
+  <!-- Config / Vehículo -->
+  <div class="section-card" style="margin-bottom:10px">
+    <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
+      <div class="section-icon" style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3)">⚙️</div>
+      <div class="section-title">Configuración</div>
+    </div>
+    <div class="section-body collapsed" id="ham-config-body">
+      <!-- Contenido inyectado dinámicamente desde panel-vehiculo -->
+      <button onclick="toggleHamDrawer(); abrirConfig()"
+              style="width:100%;padding:12px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.3);
+              border-radius:8px;color:#818cf8;font-family:'Nunito Sans',sans-serif;font-weight:700;
+              font-size:13px;cursor:pointer;margin-bottom:4px">
+        ⚙️ Abrir Configuración completa ›
+      </button>
+    </div>
+  </div>
 
-  <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:8px">🔋 SIMULACIONES</div>
+  <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:8px;padding-left:2px">🔋 SIMULACIONES</div>
 
   <!-- Cálculo por porcentaje -->
   <div class="section-card">
@@ -1899,113 +1941,19 @@
 </div>
 
 <!-- MAPA como fondo (directo en panel, z-index 1) -->
-<div id="city-map"></div>
+<div id="city-map" style="width:100%;height:100%;min-height:100vh"></div>
 <div id="city-map-status"></div>
 
 <!-- BARRA INFERIOR COMPACTA — solo % niveles -->
-<div id="carga-bottom-bar">
-  <div class="cbb-row">
-    <div class="cbb-field">
-      <span class="cbb-label">Actual</span>
-      <input type="number" id="inicio" value="20" min="0" max="100" oninput="calcular(false)" onblur="ajustarPorcentaje('inicio'); calcular(true)">
-      <span class="cbb-unit">%</span>
-    </div>
-    <div class="cbb-sep">→</div>
-    <div class="cbb-field">
-      <span class="cbb-label">Hasta</span>
-      <input type="number" id="fin" value="80" min="0" max="100" oninput="calcular(false)" onblur="ajustarPorcentaje('fin'); calcular(true)">
-      <span class="cbb-unit">%</span>
-    </div>
-    <button class="cbb-menu-btn" onclick="toggleCargaDrawer()" title="Cálculos">
-      🧮
-    </button>
-  </div>
-</div>
 
-<!-- DRAWER DE CÁLCULOS (slide-up) -->
-<div id="carga-drawer" class="carga-drawer">
-  <div class="drawer-handle" onclick="toggleCargaDrawer()"></div>
-  <div class="drawer-content">
-
-    <!-- CARGA EN EL HOGAR -->
-    <div class="drawer-section">
-      <div class="drawer-section-title">🏠 Carga en el hogar</div>
-      <div class="drawer-fields">
-        <div class="field-group">
-          <label class="field-label">Cargador domiciliario</label>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input type="number" id="potencia" value="7" step="0.1" min="0.5" max="350" list="potencias-list" oninput="calcular()" onclick="this.select()" style="flex:1">
-            <span style="font-size:12px;color:var(--text-muted)">kW</span>
-          </div>
-          <datalist id="potencias-list">
-            <option value="1.9"></option><option value="3.7"></option><option value="6.2">
-            </option><option value="7"></option><option value="7.2"></option><option value="7.4">
-            </option><option value="11"></option><option value="22"></option><option value="24">
-            </option><option value="40"></option><option value="50"></option><option value="75">
-            </option><option value="100"></option><option value="150"></option><option value="350">
-          </option></datalist>
-        </div>
-        <div class="field-group">
-          <label class="field-label">Costo UTE valle ($/kWh)</label>
-          <input type="number" id="costo" value="4.5">
-        </div>
-      </div>
-    </div>
-
-    <!-- CÁLCULO POR % -->
-    <div class="drawer-section">
-      <div class="drawer-section-title collapsible collapsed" onclick="toggleSeccion(this)">🔋 Cálculo por porcentaje</div>
-      <div class="section-body collapsed">
-        <button class="btn" onclick="calcular()">Calcular ›</button>
-        <div class="result-box" id="resultado1"><span style="color:var(--text-muted)">Tiempo estimado</span>&nbsp;&nbsp;<span class="highlight">3h 20min</span><br><span style="color:var(--text-muted)">Hora de finalización</span>&nbsp;&nbsp;<span class="highlight">🕐 23:22</span><br><hr class="divider"><span style="color:var(--text-muted)">Autonomía final</span>&nbsp;&nbsp;<span class="highlight">352.7 km</span><br><hr class="divider"><span style="color:var(--text-muted)">Costo estimado</span>&nbsp;&nbsp;<span class="cost">$104.76</span><br></div>
-      </div>
-    </div>
-
-    <!-- CÁLCULO POR TIEMPO -->
-    <div class="drawer-section">
-      <div class="drawer-section-title collapsible collapsed" onclick="toggleSeccion(this)">⏱️ Cálculo por tiempo</div>
-      <div class="section-body collapsed">
-        <div class="field-group" style="margin-bottom:10px">
-          <label class="field-label">Minutos de carga</label>
-          <input type="number" id="minutos" value="30" oninput="simularTiempo()">
-        </div>
-        <button class="btn" onclick="simularTiempo()">Calcular ›</button>
-        <div class="result-box" id="resultado2"><span style="color:var(--text-muted)">SOC inicial → final</span>&nbsp;&nbsp;<span class="highlight">20.0% → 29.0%</span><br><span style="color:var(--text-muted)">Hora de finalización</span>&nbsp;&nbsp;<span class="highlight">🕐 20:33</span><br><hr class="divider"><span style="color:var(--text-muted)">Autonomía final</span>&nbsp;&nbsp;<span class="highlight">127.9 km</span><br><hr class="divider"><span style="color:var(--text-muted)">Costo estimado</span>&nbsp;&nbsp;<span class="cost">$15.75</span><br></div>
-      </div>
-    </div>
-
-    <!-- KM OBJETIVO -->
-    <div class="drawer-section">
-      <div class="drawer-section-title collapsible collapsed" onclick="toggleSeccion(this)">🗺️ ¿Cuánto cargar para X km?</div>
-      <div class="section-body collapsed">
-        <div class="field-group" style="margin-bottom:10px">
-          <label class="field-label">Km objetivo</label>
-          <input type="number" id="km_objetivo" value="150" oninput="calcularTiempoParaKm()">
-        </div>
-        <button class="btn" onclick="calcularTiempoParaKm()">Calcular ›</button>
-        <div class="result-box" id="resultado3"><span style="color:var(--text-muted)">Tiempo necesario</span>&nbsp;&nbsp;<span class="highlight">0h 50min</span><br><span style="color:var(--text-muted)">Hora de finalización</span>&nbsp;&nbsp;<span class="highlight">🕐 20:53</span><br><span style="color:var(--text-muted)">SOC final estimado</span>&nbsp;&nbsp;<span class="val">35.0%</span><br><span style="color:var(--text-muted)">Autonomía final</span>&nbsp;&nbsp;<span class="highlight">154 km</span><br><hr class="divider"><span style="color:var(--text-muted)">Costo estimado</span>&nbsp;&nbsp;<span class="cost">$26.19</span><br></div>
-      </div>
-    </div>
-
-  </div>
-</div>
-<!-- Backdrop para cerrar drawer -->
-<div id="carga-drawer-backdrop" onclick="toggleCargaDrawer()" style="display:none;position:fixed;inset:0;z-index:198;background:rgba(0,0,0,0.3)"></div>
-
-<!-- Cargador seleccionado — bottom sheet fijo (ya tiene position:fixed) -->
-<div class="charger-selected-card" id="charger-selected-card">
-  <div class="cs-title">
-    <span id="cs-nombre">—</span>
-    <div style="display:flex;align-items:center;gap:8px">
-      <span class="stop-badge badge-charge" id="cs-badge">— kW</span>
-      <button class="cs-close" onclick="cerrarCargadorSeleccionado()">✕</button>
-    </div>
-  </div>
-  <div id="cs-result"></div>
-  <button class="btn" id="btn-ir-cargador" style="background:rgba(34,197,94,0.12);border-color:#22c55e;color:#22c55e;max-width:none;width:100%" onclick="irAlCargadorSeleccionado()">
-    🧭 Ir al cargador
-  </button>
-</div>
+<!-- Campos ocultos usados por cálculos de carga -->
+<input type="hidden" id="inicio" value="20">
+<input type="hidden" id="fin" value="80">
+<input type="hidden" id="potencia" value="7">
+<input type="hidden" id="costo" value="4.5">
+<input type="hidden" id="resultado1">
+<input type="hidden" id="resultado2">
+<input type="hidden" id="resultado3">
 
 
 <!-- MAPA RUTA (oculto hasta que se planifique un viaje) -->
@@ -2014,64 +1962,43 @@
 <!-- OVERLAY DE RESULTADOS (oculto hasta que se calcule ruta) -->
 <div class="panel-overlay" id="route-overlay" style="display:none">
 
-<div class="section-card" style="margin-bottom:8px">
-  <div class="section-body">
-    <!-- Botón volver al mapa -->
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <span style="font-size:13px;font-weight:700;color:var(--accent)">🗺️ Ruta planificada</span>
-      <button onclick="mostrarCityMap()"
-              style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer"
-              title="Volver al mapa">✕</button>
+<!-- Drag handle para deslizar el panel -->
+<div id="overlay-drag-handle" style="width:40px;height:5px;background:var(--border);border-radius:3px;margin:8px auto 10px;cursor:ns-resize"></div>
+
+<!-- Botones principales — siempre visibles arriba del panel -->
+<div id="viaje-acciones" style="display:none;gap:10px;margin-bottom:10px;flex-wrap:wrap" class="trip-actions">
+  <button class="btn-guardar" onclick="guardarViaje()">💾 Guardar</button>
+  <button class="btn-iniciar" onclick="iniciarNavegacion()">▶ Iniciar navegación</button>
+  <label class="toggle-label" title="Mostrar zonas" style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--text-muted);font-family:'Nunito Sans',sans-serif;font-weight:700">
+    <div class="toggle-switch" id="toggle-zonas-wrap" onclick="toggleZonaCirculos()">
+      <div class="toggle-knob" id="toggle-zonas-knob"></div>
     </div>
-
-    <!-- DESTINOS RÁPIDOS (viajes guardados) -->
-    <div id="destinos-rapidos" style="margin-bottom:10px;display:none">
-      <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:6px">Recientes:</div>
-      <div id="destinos-rapidos-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-    </div>
-
-    <div class="addr-hint" style="margin-bottom:12px">
-      <b>Texto:</b> "Montevideo" · "18 de Julio 1360, Mvd" · "Rivera y Larrañaga, Salto" · "Buenos Aires"
-    </div>
-
-    <datalist id="uy-cities">
-      <option value="Montevideo"></option><option value="Punta del Este">
-      </option><option value="Maldonado"></option><option value="Colonia del Sacramento">
-      </option><option value="Salto"></option><option value="Paysandú"></option><option value="Rivera">
-      </option><option value="Tacuarembó"></option><option value="Melo"></option><option value="Treinta y Tres">
-      </option><option value="Rocha"></option><option value="Chuy"></option><option value="Mercedes">
-      </option><option value="Fray Bentos"></option><option value="Trinidad"></option><option value="Durazno">
-      </option><option value="Florida"></option><option value="Minas"></option><option value="San José de Mayo">
-      </option><option value="Canelones"></option><option value="Las Piedras"></option><option value="Piriápolis">
-      </option><option value="La Paloma"></option><option value="Castillos"></option><option value="Young">
-      </option><option value="Artigas">
-    </option></datalist>
-
-    <hr style="border:none;border-top:1px solid var(--border);margin:0 0 14px">
-
-    <!-- PARÁMETROS VIAJE LARGO (ocultos en modo ciudad) -->
-    <!-- BOTÓN BUSCAR / TRAZAR (se habilita cuando hay texto en ambos campos) -->
-    <!-- RESULTADO BÚSQUEDA -->
-    <div id="route-search-result"></div>
-
-    <!-- Botones de acción del viaje (siempre visibles tras buscar) -->
-    <div id="viaje-acciones" style="display:none;gap:10px;margin-top:2px;flex-wrap:wrap" class="trip-actions">
-      <button class="btn-guardar" onclick="guardarViaje()">💾 Guardar</button>
-      <button class="btn-iniciar" onclick="iniciarNavegacion()">▶ Iniciar navegación</button>
-      <label class="toggle-label" title="Mostrar zonas de alcance en el mapa" style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--text-muted);font-family:'Nunito Sans',sans-serif;font-weight:700">
-        <div class="toggle-switch" id="toggle-zonas-wrap" onclick="toggleZonaCirculos()">
-          <div class="toggle-knob" id="toggle-zonas-knob"></div>
-        </div>
-        🎯 Zonas
-        <input type="range" id="zona-opacidad" min="5" max="50" value="50" style="width:64px;accent-color:var(--accent);display:none" oninput="setZonaOpacidad(this.value)">
-      </label>
-    </div>
-
-    <!-- RESULTADO DEL PLANIFICADOR -->
-    <div class="trip-result" id="trip-result"></div>
-
-  </div>
+    🎯 Zonas
+    <input type="range" id="zona-opacidad" min="5" max="50" value="50"
+           style="width:64px;accent-color:var(--accent);display:none" oninput="setZonaOpacidad(this.value)">
+  </label>
+  <button onclick="mostrarCityMap()"
+          style="background:rgba(239,68,68,0.1);border:2px solid #ef4444;border-radius:8px;color:#ef4444;padding:7px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">
+    ✕ Mapa
+  </button>
 </div>
+
+<!-- Mensajes de búsqueda (spinner, error, info) -->
+<div id="route-search-result"></div>
+
+<!-- RESULTADO DEL PLANIFICADOR (resumen + paradas siempre visibles) -->
+<div class="trip-result" id="trip-result"></div>
+
+<!-- datalist para autocompletado -->
+<datalist id="uy-cities">
+  <option value="Montevideo"><option value="Punta del Este"><option value="Maldonado">
+  <option value="Colonia del Sacramento"><option value="Salto"><option value="Paysandú">
+  <option value="Rivera"><option value="Tacuarembó"><option value="Melo"><option value="Treinta y Tres">
+  <option value="Rocha"><option value="Chuy"><option value="Mercedes"><option value="Fray Bentos">
+  <option value="Trinidad"><option value="Durazno"><option value="Florida"><option value="Minas">
+  <option value="San José de Mayo"><option value="Canelones"><option value="Las Piedras">
+  <option value="Piriápolis"><option value="La Paloma"><option value="Artigas">
+</datalist>
 
 
 <script>
@@ -2082,19 +2009,11 @@ let modoConsumo = 'ciudad'; // 'ciudad' | 'ruta'
 
 // ── NAVEGACIÓN ENTRE PANELES ──
 function switchPanel(panel) {
-    // Solo 2 paneles: vehiculo (Config) y viaje
-    ['vehiculo','viaje'].forEach(p => {
-        document.getElementById('panel-' + p)?.classList.toggle('active', p === panel);
-    });
-    document.getElementById('nav-vehiculo')?.classList.toggle('active', panel === 'vehiculo');
-    document.getElementById('nav-viaje')?.classList.toggle('active', panel === 'viaje');
-    localStorage.setItem('ev-panel', panel);
+    if (panel === 'vehiculo') { abrirConfig(); return; }
+    // Mapa es siempre el fondo — no hay otras pantallas
     if (panel === 'viaje') {
-        // Re-renderizar mapa si hay ruta pendiente
         if (window._rutaData?.coords) setTimeout(() => renderMap(), 150);
-        // Auto-cargar cargadores cercanos en el mapa
         setTimeout(() => autoCargarMapaCiudad(), 300);
-        // Auto-fill origen GPS
         setTimeout(() => autoFillOrigen(), 200);
     }
 }
@@ -2132,11 +2051,17 @@ document.addEventListener("DOMContentLoaded", function() {
     renderDestinosRapidos();
     // Restaurar panel activo
     const savedPanel  = localStorage.getItem('ev-panel');
-        const tieneVehiculo = !!localStorage.getItem('ev-vehiculo');
+    const tieneVehiculo = !!localStorage.getItem('ev-vehiculo');
+
     if (!tieneVehiculo) {
-        switchPanel('vehiculo');
+        // Sin vehículo: inicializar mapa igual y mostrar mensaje
+        setTimeout(() => autoCargarMapaCiudad(), 100);
+        setTimeout(() => mostrarMensajeSinVehiculo(), 600);
     } else {
-        switchPanel('viaje');  // siempre Viaje al iniciar
+        // Con vehículo: inicializar mapa con cargadores
+        // Intentar inmediatamente y también con delays
+        setTimeout(() => autoCargarMapaCiudad(), 100);
+        setTimeout(() => { if (!_cityMap) autoCargarMapaCiudad(); }, 800);
     }
 });
 
@@ -2513,9 +2438,9 @@ function calcular(validar = false) {
         return;
     }
 
-    let pot     = parseFloat(document.getElementById("potencia").value);
+    let pot     = parseFloat(document.getElementById("potencia")?.value) || 7;
     let consumo = getConsumo();
-    let costo   = parseFloat(document.getElementById("costo").value);
+    let costo   = parseFloat(document.getElementById("costo")?.value) || 4.5;
 
     let energiaTotal = cap * ((fin - ini) / 100);
     let tiempo = 0;
@@ -2556,12 +2481,12 @@ function calcular(validar = false) {
 
 // ===== SIMULACION POR TIEMPO =====
 function simularTiempo() {
-    let cap     = parseFloat(document.getElementById("capacidad").value);
-    let soc     = limitarPorcentaje(parseFloat(document.getElementById("inicio").value));
-    let pot     = parseFloat(document.getElementById("potencia").value);
+    let cap     = parseFloat(document.getElementById("capacidad")?.value) || 50;
+    let soc     = limitarPorcentaje(parseFloat(document.getElementById("ham-inicio")?.value ?? document.getElementById("inicio")?.value) || 20);
+    let pot     = parseFloat(document.getElementById("potencia")?.value) || 7;
     let consumo = getConsumo();
-    let minutos = parseFloat(document.getElementById("minutos").value);
-    let costo   = parseFloat(document.getElementById("costo").value);
+    let minutos = parseFloat(document.getElementById("ham-minutos")?.value) || 30;
+    let costo   = parseFloat(document.getElementById("costo")?.value) || 4.5;
 
     let tiempoRestante = minutos / 60;
     let energiaCargada = 0;
@@ -2603,12 +2528,12 @@ function simularTiempo() {
 
 // ===== POR KM =====
 function calcularTiempoParaKm() {
-    let cap        = parseFloat(document.getElementById("capacidad").value);
-    let soc        = limitarPorcentaje(parseFloat(document.getElementById("inicio").value));
-    let pot        = parseFloat(document.getElementById("potencia").value);
+    let cap        = parseFloat(document.getElementById("capacidad")?.value) || 50;
+    let soc        = limitarPorcentaje(parseFloat(document.getElementById("ham-inicio")?.value ?? document.getElementById("inicio")?.value) || 20);
+    let pot        = parseFloat(document.getElementById("potencia")?.value) || 7;
     let consumo    = getConsumo();
-    let kmObjetivo = parseFloat(document.getElementById("km_objetivo").value);
-    let costo      = parseFloat(document.getElementById("costo").value);
+    let kmObjetivo = parseFloat(document.getElementById("ham-kmobj")?.value) || 150;
+    let costo      = parseFloat(document.getElementById("costo")?.value) || 4.5;
 
     let kmTotales       = (cap / consumo) * 100;
     let autonomiaActual = (soc / 100) * kmTotales;
@@ -2657,7 +2582,7 @@ function calcularTiempoParaKm() {
 
 // ===== BANNER =====
 function actualizarAutonomiaTotal() {
-    let cap     = parseFloat(document.getElementById("capacidad").value);
+    let cap     = parseFloat(document.getElementById("capacidad")?.value) || 50;
     let ciudad  = parseFloat(document.getElementById("consumo").value);
     let rutaVal = parseFloat(document.getElementById("consumo_ruta_vh")?.value) || ciudad;
     if (!cap || !ciudad || ciudad <= 0) {
@@ -2770,19 +2695,34 @@ let _cityMap    = null;
 let _cityMarkers = [];
 
 async function buscarCargadoresCercanos() {
+    const statusEl = document.getElementById('city-map-status');
+
+    // ── Inicializar mapa INMEDIATAMENTE con vista por defecto (Montevideo) ──
+    if (!_cityMap) {
+        const defaultLat = _lastGPS?.lat || -34.9011;
+        const defaultLon = _lastGPS?.lon || -56.1645;
+        renderCityMapBase(defaultLat, defaultLon);
+        // Mostrar cargadores UTE estáticos de inmediato (sin esperar GPS)
+        if (typeof CARGADORES_UTE_ESTATICOS !== 'undefined') {
+            const estaticos = CARGADORES_UTE_ESTATICOS.map((c, i) => ({
+                ...c, id: 'ute_static_' + i, dist: undefined
+            }));
+            agregarMarcadoresCiudad(estaticos);
+        }
+    }
+
     if (!navigator.geolocation) {
-        document.getElementById('city-map-status').innerHTML =
-            `<div class="loading-msg" style="color:#f87171">⚠ Tu dispositivo no soporta geolocalización.</div>`;
+        if (statusEl) statusEl.innerHTML = '';
         return;
     }
-    const statusEl = document.getElementById('city-map-status');
-    statusEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Obteniendo ubicación...</div>`;
+    if (statusEl) statusEl.innerHTML = `<div class="loading-msg" style="background:rgba(13,20,38,0.7);position:absolute;top:8px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:50;padding:4px 12px;border-radius:20px;font-size:12px"><div class="spinner" style="width:12px;height:12px;display:inline-block;margin-right:6px"></div>Buscando cargadores cercanos...</div>`;
 
     navigator.geolocation.getCurrentPosition(
         async pos => {
             const { latitude: lat, longitude: lon } = pos.coords;
             _lastGPS = { lat, lon };
-            statusEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Buscando cargadores cercanos...</div>`;
+            // Centrar en la posición real del usuario
+            if (_cityMap) _cityMap.setView([lat, lon], 14);
             try {
                 const url = `https://api.openchargemap.io/v3/poi/?output=json`
                     + `&latitude=${lat}&longitude=${lon}&distance=5&maxresults=30&key=${OCM_API_KEY}`;
@@ -2806,18 +2746,76 @@ async function buscarCargadoresCercanos() {
                     };
                 }).sort((a,b) => a.dist - b.dist);
 
-                statusEl.innerHTML = '';
+                if (statusEl) statusEl.innerHTML = '';
                 renderCityMap(lat, lon, cargadores);
             } catch(e) {
-                statusEl.innerHTML = `<div class="loading-msg" style="color:#f87171">⚠ Error: ${e.message}</div>`;
+                if (statusEl) statusEl.innerHTML = '';
             }
         },
         err => {
-            document.getElementById('city-map-status').innerHTML =
-                `<div class="loading-msg" style="color:#f87171">⚠ ${err.code === 1 ? 'Permiso de ubicación denegado' : 'Error de GPS'}</div>`;
+            if (statusEl) statusEl.innerHTML = '';
+            // GPS falló pero el mapa ya está visible con cargadores estáticos
         },
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
     );
+}
+
+// Inicializar mapa base sin cargadores (rápido, no espera GPS)
+function renderCityMapBase(lat, lon) {
+    const mapEl = document.getElementById('city-map');
+    if (!mapEl) { console.error('city-map not found'); return; }
+
+    // Forzar dimensiones antes de inicializar Leaflet
+    mapEl.style.width  = '100%';
+    mapEl.style.height = window.innerHeight + 'px';
+
+    if (_cityMap) { try { _cityMap.remove(); } catch(e){} _cityMap = null; }
+
+    try {
+        _cityMap = L.map('city-map', {
+            zoomControl: true,
+            attributionControl: true,
+            preferCanvas: false
+        });
+        const cms = MAP_STYLES[_mapStyle] || MAP_STYLES.nav;
+        _cityTileLayer = L.tileLayer(cms.url, {
+            attribution: cms.attr,
+            subdomains: cms.sub || 'abc',
+            maxZoom: 19,
+            crossOrigin: true
+        }).addTo(_cityMap);
+        _cityMap.setView([lat, lon], 13);
+        // Múltiples invalidateSize para garantizar render
+        [100, 300, 600, 1200].forEach(ms =>
+            setTimeout(() => { if (_cityMap) _cityMap.invalidateSize(true); }, ms)
+        );
+        console.log('City map initialized at', lat, lon);
+    } catch(err) {
+        console.error('Error initializing city map:', err);
+    }
+}
+
+// Agregar marcadores de cargadores al city-map existente
+function agregarMarcadoresCiudad(cargadores) {
+    if (!_cityMap) return;
+    cargadores.forEach(c => {
+        const color  = c.potencia >= 100 ? '#f87171' : c.potencia >= 50 ? '#fbbf24' : c.potencia >= 22 ? '#00e5ff' : '#6b7fa3';
+        const radius = c.potencia >= 50 ? 10 : c.potencia >= 22 ? 8 : 6;
+        const marker = L.circleMarker([c.lat, c.lon], {
+            radius, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.85
+        }).addTo(_cityMap);
+        marker.bindPopup(`
+            <div style="font-family:sans-serif;min-width:190px">
+                <b>${c.nombre}</b><br>
+                <span style="color:#666">⚡ ${c.potencia.toFixed(0)} kW · ${c.dist !== undefined ? c.dist+' km' : 'UTE'}</span>
+                <hr style="margin:6px 0;border-color:#eee">
+                <button onclick="seleccionarCargadorCiudad(${c.id},'${(c.nombre||'').replace(/'/g,"\\'")}',${c.potencia},${c.lat},${c.lon})"
+                    style="width:100%;padding:6px;background:#0a0e17;border:1px solid #00e5ff;border-radius:5px;
+                           cursor:pointer;color:#00e5ff;font-weight:700;font-size:12px">
+                    ⚡ Usar este cargador
+                </button>
+            </div>`);
+    });
 }
 
 function renderCityMap(myLat, myLon, cargadores) {
@@ -3740,22 +3738,14 @@ function refreshChipColors(tramos) {
     const wrap = document.querySelector('.station-list-wrap');
     if (wrap) {
         wrap.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                <div class="station-list-title" style="margin-bottom:0">Cargadores encontrados por tramo</div>
-                <button class="sort-btn" style="flex:none;padding:5px 10px" onclick="toggleCargadores()">
-                    <span id="btn-cargadores-txt">Ver cargadores ▾</span>
-                </button>
+            <div class="station-list-title" style="margin-bottom:8px">Cargadores por tramo</div>
+            ${legendHtml}
+            <div class="sort-row">
+                <span class="sort-label">Orden:</span>
+                <button class="sort-btn ${_currentSort==='ruta'?'active':''}"     id="sort-ruta"     onclick="setSort('ruta')">📍 Recorrido</button>
+                <button class="sort-btn ${_currentSort==='potencia'?'active':''}" id="sort-potencia"  onclick="setSort('potencia')">⚡ Potencia</button>
             </div>
-            <div id="cargadores-panel" style="display:none">
-                ${legendHtml}
-                <div class="sort-row">
-                    <span class="sort-label">Orden:</span>
-                    <button class="sort-btn ${_currentSort==='ruta'?'active':''}"     id="sort-ruta"     onclick="setSort('ruta')">📍 Recorrido</button>
-                    <button class="sort-btn ${_currentSort==='potencia'?'active':''}" id="sort-potencia"  onclick="setSort('potencia')">⚡ Potencia</button>
-                </div>
-                <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">${chipsInner}</div>
-            </div>
-            <button class="btn" style="margin-top:10px" onclick="planificarViajeRuta()">Replanificar ›</button>`;
+            <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">${chipsInner}</div>`;
         setTimeout(() => renderMap(), 100);
     }
 }
@@ -4356,7 +4346,7 @@ async function buscarRuta() {
         return;
     }
 
-    resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Geocodificando origen y destino...</div>`;
+    resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>⌛ Espere, buscando ruta...</div>`;
 
     try {
         // 1. Usar coordenadas guardadas o geocodificar
@@ -4399,10 +4389,9 @@ async function buscarRuta() {
         const autonomiaActual = (socInicio/100) * kmTotales;
 
         let routeInfoHtml = `
-        <div class="route-info-bar" style="margin-top:14px">
-            <span>📍 ${orig.name} → ${dest.name}</span>
-            <span>🛣 <span>${distKm} km</span></span>
-            <span>🔌 <span>${estaciones.length} cargadores encontrados</span></span>
+        <div class="route-info-bar" style="margin-top:6px">
+            <span>🛣 ${distKm} km</span>
+            <span>🔌 ${estaciones.length} cargadores encontrados</span>
         </div>`;
 
         let chipsHtml = '';
@@ -4432,23 +4421,13 @@ async function buscarRuta() {
             </div>`;
 
             chipsHtml = `<div class="station-list-wrap">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <div class="station-list-title" style="margin-bottom:0">Cargadores encontrados por tramo</div>
-                    <button class="sort-btn" style="flex:none;padding:5px 10px" onclick="toggleCargadores()">
-                        <span id="btn-cargadores-txt">Ver cargadores ▾</span>
-                    </button>
+                <div class="station-list-title" style="margin-bottom:8px">Cargadores por tramo</div>
+                ${legendHtml}
+                ${sortRow}
+                <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">
+                    ${buildChipsHtml(estaciones, zonas, ZONE_CLASSES, 'ruta', tramosIniciales)}
                 </div>
-                <div id="cargadores-panel" style="display:none">
-                    ${legendHtml}
-                    ${sortRow}
-                    <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">
-                        ${buildChipsHtml(estaciones, zonas, ZONE_CLASSES, 'ruta', tramosIniciales)}
-                    </div>
-                </div>` +
-                (distKm > autonomiaActual
-                    ? `<button class="btn" style="margin-top:10px" onclick="planificarViajeRuta()">Planificar viaje con estos cargadores ›</button>`
-                    : `<div class="loading-msg" style="color:var(--success)">✓ Tu autonomía actual (${autonomiaActual.toFixed(0)} km) alcanza para llegar sin cargar.</div>`
-                ) + `</div>`;
+            </div>`;
         }
 
         // 1. Mostrar route-map ANTES que Leaflet lo inicialice (necesita dimensiones reales)
@@ -4466,13 +4445,20 @@ async function buscarRuta() {
             if (estaciones.length > 0 && chipsHtml) {
                 const tripEl = document.getElementById('trip-result');
                 if (tripEl) {
-                    tripEl.innerHTML += `<div class="section-card" style="margin-top:12px">
-                        <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
-                            <div class="section-icon" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25)">⚡</div>
-                            <div class="section-title">⚡ Cargadores en ruta (${estaciones.length})</div>
-                        </div>
-                        <div class="section-body collapsed">${chipsHtml}</div>
-                    </div>`;
+                    // Botón "Ver cargadores" simple afuera del bloque, toggle del panel
+                    tripEl.innerHTML += `
+                        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+                            <button onclick="toggleCargadoresPanel()" id="btn-ver-cargadores"
+                                    style="width:100%;padding:8px 14px;background:rgba(251,191,36,0.08);
+                                    border:1px solid rgba(251,191,36,0.3);border-radius:8px;
+                                    color:#fbbf24;font-family:'Nunito Sans',sans-serif;font-weight:700;
+                                    font-size:13px;cursor:pointer;text-align:left">
+                                ⚡ Ver cargadores en ruta (${estaciones.length}) ▾
+                            </button>
+                            <div id="cargadores-panel-ext" style="display:none;margin-top:8px">
+                                ${chipsHtml}
+                            </div>
+                        </div>`;
                 }
             }
         }, 350);
@@ -4818,17 +4804,12 @@ function renderViaje(tramos) {
       ${hayError ? '<br><span style="color:#f87171">⚠ Algún tramo no tiene batería suficiente. Revisá las paradas.</span>' : ''}
     </div>`;
 
-    document.getElementById('trip-result').innerHTML = summaryHtml +
-        `<div class="paradas-toggle-row">
-            <button class="paradas-toggle-btn" id="btn-paradas-toggle"
-                    onclick="toggleResumenParadas()">
-                📋 Ver resumen de paradas ▾
-            </button>
-        </div>
-        <div id="resumen-paradas-wrap" style="display:none">
-            ${htmlParadas}
-        </div>`;
-    // Mostrar el overlay de resultados (y route-map)
+    document.getElementById('trip-result').innerHTML =
+        summaryHtml +
+        `<div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text-muted);margin:10px 0 6px;padding-top:8px;border-top:1px solid var(--border)">
+            📋 PARADAS
+        </div>` +
+        htmlParadas;
     mostrarRouteOverlay();
 }
 
@@ -4939,6 +4920,17 @@ let _sugTimers = {};
 
 let _modoCarga = 'manual'; // 'manual' | 'optimo'
 
+
+function toggleCargadoresPanel() {
+    const panel = document.getElementById('cargadores-panel-ext');
+    const btn   = document.getElementById('btn-ver-cargadores');
+    if (!panel || !btn) return;
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    btn.textContent = visible
+        ? `⚡ Ver cargadores en ruta ▾`
+        : `⚡ Ocultar cargadores ▴`;
+}
 function toggleResumenParadas() {
     const wrap = document.getElementById('resumen-paradas-wrap');
     const btn  = document.getElementById('btn-paradas-toggle');
@@ -5022,13 +5014,35 @@ async function getOrigenCoords() {
     });
 }
 
+
+// Limpiar todos los datos del viaje anterior
+function limpiarViajePrevio() {
+    window._rutaData = null;
+    limpiarZonaCirculos();
+    const tripEl = document.getElementById('trip-result');
+    if (tripEl) tripEl.innerHTML = '';
+    const resEl  = document.getElementById('route-search-result');
+    if (resEl)  resEl.innerHTML = '';
+    const acEl   = document.getElementById('viaje-acciones');
+    if (acEl)   acEl.style.display = 'none';
+    const overlay = document.getElementById('route-overlay');
+    if (overlay) { overlay.style.display = 'none'; overlay.style.height = ''; }
+}
 async function accionRuta() {
+    // Limpiar viaje anterior antes de calcular el nuevo
+    limpiarViajePrevio();
     const resBtn = document.getElementById('btn-buscar-ruta');
 
     // ── Paso 1: Obtener origen (GPS) ──
     let origenCoords;
     try {
         if (resBtn) { resBtn.disabled = true; resBtn.textContent = '📍 Obteniendo ubicación...'; }
+        // Mostrar overlay con spinner inmediatamente
+        mostrarRouteOverlay();
+        const resElAcion = document.getElementById('route-search-result');
+        if (resElAcion) resElAcion.innerHTML = '<div class="loading-msg"><div class="spinner"></div>⌛ Calculando ruta, espere...</div>';
+        const acEl = document.getElementById('viaje-acciones');
+        if (acEl) acEl.style.display = 'none';
         origenCoords = await getOrigenCoords();
     } catch(e) {
         mostrarToast('⚠ No se pudo obtener tu ubicación. Activa el GPS.', 4000);
@@ -5238,7 +5252,7 @@ async function trazarRutaCiudad() {
         mostrarToast('⚠ Indica el destino'); return;
     }
 
-    if (resEl) resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>Calculando ruta...</div>`;
+    if (resEl) resEl.innerHTML = `<div class="loading-msg"><div class="spinner"></div>⌛ Espere, calculando ruta...</div>`;
     const accionesEl = document.getElementById('viaje-acciones');
     if (accionesEl) accionesEl.style.display = 'none';
     mostrarRouteOverlay();  // mostrar route-map ya
@@ -5724,6 +5738,9 @@ async function iniciarNavegacion() {
     _navActivo = true;
     precargarVoces();
     iniciarVozHeartbeat(); // iniciar heartbeat desde el comienzo (iOS fix)
+    // Mostrar botón Detener flotante
+    const detFloat = document.getElementById('btn-detener-float');
+    if (detFloat) detFloat.style.display = 'block';
     // Ocultar botón Viaje durante navegación
     const fab = document.getElementById('viaje-fab');
     if (fab) fab.style.display = 'none'; // asegurar que las voces están cargadas antes del primer anuncio
@@ -5762,6 +5779,9 @@ async function iniciarNavegacion() {
 
 function detenerNavegacion() {
     _navActivo = false;
+    // Ocultar botón Detener flotante
+    const detFloat2 = document.getElementById('btn-detener-float');
+    if (detFloat2) detFloat2.style.display = 'none';
     // Restaurar botón Viaje al detener
     const fab = document.getElementById('viaje-fab');
     if (fab) fab.style.display = '';
@@ -5774,13 +5794,22 @@ function detenerNavegacion() {
     document.getElementById('nav-overlay')?.classList.remove('active');
     
     salirMapaFullscreen();
-    if (_navFromCarga) {
-        _navFromCarga = false;
-        setTimeout(() => mostrarCityMap(), 300);
-    } else if (window._rutaData) {
-        mostrarRouteOverlay();
-    document.getElementById('viaje-acciones').style.display = 'flex';
-    }
+    _navFromCarga = false;
+    setTimeout(() => {
+        mostrarCityMap();
+        // Colapsar y limpiar el overlay de resultados
+        const overlay = document.getElementById('route-overlay');
+        if (overlay) { overlay.style.display = 'none'; overlay.style.height = ''; overlay.classList.remove('expanded'); }
+        const tripEl = document.getElementById('trip-result');
+        if (tripEl) tripEl.innerHTML = '';
+        const resEl = document.getElementById('route-search-result');
+        if (resEl) resEl.innerHTML = '';
+        const acEl = document.getElementById('viaje-acciones');
+        if (acEl) acEl.style.display = 'none';
+        window._rutaData = null;
+        // Recargar cargadores cercanos
+        setTimeout(() => autoCargarMapaCiudad(), 400);
+    }, 300);
     mostrarToast('⏹ Navegación detenida');
 }
 
@@ -6358,7 +6387,15 @@ function cerrarViajeDrawer() {
 
 function cerrarViajeDrawerYBuscar() {
     cerrarViajeDrawer();
-    setTimeout(() => accionRuta(), 200);
+    // Mostrar spinner inmediatamente (antes de que termine el animatino del drawer)
+    setTimeout(() => {
+        mostrarRouteOverlay();
+        const resEl = document.getElementById('route-search-result');
+        if (resEl) resEl.innerHTML = '<div class="loading-msg"><div class="spinner"></div>⌛ Espere, calculando ruta...</div>';
+        const acEl = document.getElementById('viaje-acciones');
+        if (acEl) acEl.style.display = 'none';
+    }, 50);
+    setTimeout(() => accionRuta(), 250);
 }
 
 // Mostrar el overlay de resultados de ruta
@@ -6392,53 +6429,216 @@ function mostrarCityMap() {
 
 
 // ── MENÚ HAMBURGUESA ──
+
+
+// ── Selector de voz ──
+function cargarOpcionesVoz() {
+    const sel = document.getElementById('voz-selector');
+    if (!sel || !window.speechSynthesis) return;
+    const voices = window.speechSynthesis.getVoices();
+    if (!voices.length) return;
+    const saved = localStorage.getItem('ev-voz-name') || '';
+    // Limpiar y llenar opciones
+    sel.innerHTML = '<option value="">Voz por defecto (español)</option>';
+    voices.forEach(v => {
+        if (v.lang.startsWith('es') || v.lang.startsWith('ca') || v.lang.startsWith('gl')) {
+            const opt = document.createElement('option');
+            opt.value = v.name;
+            opt.textContent = `${v.name} (${v.lang})${v.localService ? ' 📱' : ' 🌐'}`;
+            if (v.name === saved) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    });
+    // Cargar también voces no-español al final
+    voices.forEach(v => {
+        if (!v.lang.startsWith('es') && !v.lang.startsWith('ca') && !v.lang.startsWith('gl')) {
+            const opt = document.createElement('option');
+            opt.value = v.name;
+            opt.textContent = `${v.name} (${v.lang})`;
+            if (v.name === saved) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    });
+}
+
+function setVozSeleccionada(name) {
+    localStorage.setItem('ev-voz-name', name);
+    // Actualizar _vozEspañol
+    if (!name) { _vozEspañol = null; precargarVoces(); return; }
+    const voices = window.speechSynthesis?.getVoices() || [];
+    _vozEspañol = voices.find(v => v.name === name) || null;
+    guardarConfiguracion();
+}
+
+function probarVoz() {
+    const texto = 'En 300 metros, tome la salida a la derecha';
+    anunciar(texto);
+}
+
+// Cargar voces al abrir Config
+if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = () => {
+        cargarOpcionesVoz();
+        precargarVoces();
+    };
+    setTimeout(cargarOpcionesVoz, 500);
+}
+function abrirConfig() {
+    const pv = document.getElementById('panel-vehiculo');
+    if (pv) pv.style.display = 'block';
+    setTimeout(cargarOpcionesVoz, 200);
+}
+function cerrarConfig() {
+    const pv = document.getElementById('panel-vehiculo');
+    if (pv) pv.style.display = 'none';
+}
+
+function mostrarMensajeSinVehiculo() {
+    // Mostrar overlay con mensaje encima del mapa vacío
+    let msg = document.getElementById('sin-vehiculo-msg');
+    if (!msg) {
+        msg = document.createElement('div');
+        msg.id = 'sin-vehiculo-msg';
+        msg.style.cssText = `
+            position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+            z-index:150;background:rgba(13,20,38,0.94);
+            border:1px solid var(--accent);border-radius:16px;
+            padding:28px 24px;text-align:center;max-width:280px;
+            font-family:'Nunito Sans',sans-serif;backdrop-filter:blur(10px);
+        `;
+        msg.innerHTML = `
+            <div style="font-size:48px;margin-bottom:12px">🚗</div>
+            <div style="font-size:16px;font-weight:800;color:var(--text);margin-bottom:8px">
+                Bienvenido a EV Calc PRO
+            </div>
+            <div style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.5">
+                Para comenzar, ingresá al menú ☰ y configurá tu vehículo eléctrico.
+            </div>
+            <button onclick="toggleHamDrawer(); this.closest('#sin-vehiculo-msg').remove()"
+                    style="background:var(--accent);border:none;border-radius:10px;
+                    color:#000;font-weight:800;font-size:14px;padding:10px 22px;cursor:pointer">
+                ☰ Abrir menú y configurar
+            </button>
+        `;
+        document.getElementById('panel-viaje')?.appendChild(msg);
+    }
+}
 function toggleHamDrawer() {
     const d = document.getElementById('ham-drawer');
     if (d) d.classList.toggle('open');
 }
 
 function calcularHamPorcentaje() {
-    const cap    = parseFloat(document.getElementById('capacidad')?.value) || 50;
-    const pot    = parseFloat(document.getElementById('potencia')?.value)  || 7;
-    const inicio = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
-    const fin    = parseFloat(document.getElementById('ham-fin')?.value)    || 80;
+    const cap     = parseFloat(document.getElementById('capacidad')?.value) || 50;
+    const pot     = parseFloat(document.getElementById('potencia')?.value)  || 7;
+    const inicio  = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
+    const fin     = parseFloat(document.getElementById('ham-fin')?.value)    || 80;
     const energia = ((fin - inicio) / 100) * cap;
     const horas   = energia / pot;
     const resEl   = document.getElementById('ham-resultado1');
-    if (resEl) resEl.innerHTML = `<b>${energia.toFixed(1)} kWh</b> · <b>${Math.floor(horas)}h ${Math.round((horas%1)*60)}min</b>`;
+    if (resEl) resEl.innerHTML = `
+        <b>${energia.toFixed(1)} kWh</b> · <b>${fmtTiempo(horas)}</b>
+        ${pot <= 22 ? `· <span style="color:var(--success)">$${(54.8 + energia*10.4).toFixed(0)} UYU</span>` : `· <span style="color:var(--success)">$${(132.9 + energia*11.8).toFixed(0)} UYU</span>`}`;
 }
 
 function calcularHamTiempo() {
-    const cap    = parseFloat(document.getElementById('capacidad')?.value) || 50;
-    const pot    = parseFloat(document.getElementById('potencia')?.value)  || 7;
-    const inicio = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
-    const min    = parseFloat(document.getElementById('ham-minutos')?.value) || 30;
-    const energia = pot * (min / 60);
-    const kwh_ini = (inicio / 100) * cap;
-    const socFin  = Math.min(100, ((kwh_ini + energia) / cap) * 100);
+    const cap     = parseFloat(document.getElementById('capacidad')?.value) || 50;
+    const pot     = parseFloat(document.getElementById('potencia')?.value)  || 7;
+    const inicio  = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
+    const minutos = parseFloat(document.getElementById('ham-minutos')?.value) || 30;
+    const energia = pot * (minutos / 60);
+    const kwh_cap = (inicio / 100) * cap;
+    const socFin  = Math.min(100, ((kwh_cap + energia) / cap) * 100);
     const resEl   = document.getElementById('ham-resultado2');
-    if (resEl) resEl.innerHTML = `<b>${energia.toFixed(1)} kWh</b> · ${inicio.toFixed(0)}% → <b>${socFin.toFixed(1)}%</b>`;
+    if (resEl) resEl.innerHTML = `
+        <b>${energia.toFixed(1)} kWh</b> cargados · batería: <b>${inicio.toFixed(0)}% → ${socFin.toFixed(1)}%</b>`;
 }
 
 function calcularHamKm() {
-    const cap    = parseFloat(document.getElementById('capacidad')?.value) || 50;
-    const consumo = parseFloat(document.getElementById('consumo')?.value) || 8.8;
-    const pot    = parseFloat(document.getElementById('potencia')?.value)  || 7;
-    const inicio = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
-    const kmObj  = parseFloat(document.getElementById('ham-kmobj')?.value) || 150;
+    const cap     = parseFloat(document.getElementById('capacidad')?.value) || 50;
+    const consumo = parseFloat(document.getElementById('consumo')?.value)   || 8.8;
+    const pot     = parseFloat(document.getElementById('potencia')?.value)  || 7;
+    const inicio  = parseFloat(document.getElementById('ham-inicio')?.value) || 20;
+    const kmObj   = parseFloat(document.getElementById('ham-kmobj')?.value) || 150;
     const energNec = (kmObj / 100) * consumo;
     const energIni = (inicio / 100) * cap;
-    const energCar = Math.max(0, energNec - energIni);
-    const horas    = energCar / pot;
-    const resEl    = document.getElementById('ham-resultado3');
-    if (resEl) resEl.innerHTML = energCar <= 0
-        ? '<span style="color:var(--success)">✅ Ya tenés carga suficiente</span>'
-        : `Cargar <b>${energCar.toFixed(1)} kWh</b> · <b>${Math.floor(horas)}h ${Math.round((horas%1)*60)}min</b>`;
+    const energCargar = Math.max(0, energNec - energIni);
+    const horas   = energCargar / pot;
+    const resEl   = document.getElementById('ham-resultado3');
+    if (resEl) resEl.innerHTML = energCargar <= 0
+        ? `<span style="color:var(--success)">✅ Ya tenés carga suficiente para ${kmObj} km</span>`
+        : `Cargar <b>${energCargar.toFixed(1)} kWh</b> · <b>${fmtTiempo(horas)}</b>`;
 }
+
+// ── OVERLAY DESLIZABLE (drag handle) ──
+(function initDragOverlay() {
+    let startY = 0, startH = 0, dragging = false;
+    const getOverlay = () => document.getElementById('route-overlay');
+    const getHandle  = () => document.getElementById('overlay-drag-handle');
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const handle = getHandle();
+        if (!handle) return;
+
+        handle.addEventListener('touchstart', e => {
+            const overlay = getOverlay(); if (!overlay) return;
+            dragging = true;
+            startY = e.touches[0].clientY;
+            startH = overlay.offsetHeight;
+        }, { passive: true });
+
+        handle.addEventListener('touchmove', e => {
+            if (!dragging) return;
+            const overlay = getOverlay(); if (!overlay) return;
+            const dy = startY - e.touches[0].clientY;
+            const newH = Math.max(56, Math.min(window.innerHeight * 0.92, startH + dy));
+            overlay.style.height = newH + 'px';
+            overlay.classList.remove('expanded','collapsed');
+        }, { passive: true });
+
+        handle.addEventListener('touchend', () => { dragging = false; });
+
+        // Doble tap en handle: alternar expandido/colapsado
+        let lastTap = 0;
+        handle.addEventListener('click', () => {
+            const overlay = getOverlay(); if (!overlay) return;
+            const now = Date.now();
+            if (now - lastTap < 350) {
+                overlay.classList.toggle('expanded');
+                overlay.classList.remove('collapsed');
+                overlay.style.height = '';
+            } else {
+                // Single tap: colapsar si expandido, expandir si colapsado
+                overlay.classList.toggle('collapsed');
+                overlay.classList.remove('expanded');
+                overlay.style.height = '';
+            }
+            lastTap = now;
+        });
+    });
+})();
 
 </script>
 
 </div><!-- /panel-overlay -->
+
+
+<!-- CARGADOR SELECCIONADO (aparece al tocar un cargador en el mapa) -->
+<div class="charger-selected-card" id="charger-selected-card">
+  <div class="cs-title">
+    <div>
+      <span id="cs-nombre" style="font-weight:800;font-size:14px">—</span><br>
+      <span id="cs-badge" class="stop-badge badge-charge" style="font-size:11px">— kW</span>
+    </div>
+    <button class="cs-close" onclick="cerrarCargadorSeleccionado()">✕</button>
+  </div>
+  <div id="cs-result"></div>
+  <button class="btn" id="btn-ir-cargador"
+          style="background:rgba(34,197,94,0.12);border-color:#22c55e;color:#22c55e;max-width:none;width:100%;margin-top:8px"
+          onclick="irAlCargadorSeleccionado()">
+    🧭 Navegar al cargador
+  </button>
+</div>
 
 </div><!-- /panel-viaje -->
 
@@ -6464,7 +6664,7 @@ function calcularHamKm() {
   </div>
 </div>
 
-<!-- sin bottom-nav: el mapa es la pantalla principal -->
+<!-- SIN BOTTOM NAV — todo está en el mapa y el menú hamburguesa -->
 
 
 <!-- ── FULLSCREEN EXIT / MAXIMIZE BUTTONS ── -->
@@ -6493,8 +6693,7 @@ function calcularHamKm() {
         <div class="nav-prox-dist" id="nav-prox-dist"></div>
       </div>
       <div class="nav-overlay-btns">
-        <button class="nav-btn-action nav-btn-fwd" onclick="avanzarParada(false)" title="Siguiente parada">⏭</button>
-        <button class="nav-btn-action nav-btn-stop" onclick="detenerNavegacion()" title="Detener">⏹</button>
+        <button class="nav-btn-action nav-btn-fwd" onclick="avanzarParada(false)" title="Marcar parada como visitada y continuar">⏭</button>
       </div>
     </div>
     <div class="nav-radio-row" id="nav-radio-row">
@@ -6507,16 +6706,16 @@ function calcularHamKm() {
     </div>
   </div>
 
-  <!-- Botón detener — flotante en la parte inferior del mapa -->
-  <button onclick="detenerNavegacion()"
-          style="position:fixed;bottom:75px;left:50%;transform:translateX(-50%);
+  <!-- Botón detener — debajo del panel de instrucciones (top fijo) -->
+  <button id="btn-detener-float" onclick="detenerNavegacion()"
+          style="display:none;position:fixed;top:74px;right:12px;
                  z-index:520;
-                 background:#f87171;border:none;border-radius:24px;
+                 background:#f87171;border:none;border-radius:20px;
                  color:#fff;font-family:'Nunito Sans',sans-serif;font-weight:800;
-                 font-size:14px;padding:10px 28px;
-                 box-shadow:0 4px 16px rgba(248,113,113,0.5);
+                 font-size:12px;padding:7px 14px;
+                 box-shadow:0 3px 12px rgba(248,113,113,0.5);
                  cursor:pointer;white-space:nowrap">
-    ⏹ Detener navegación
+    ⏹ Detener
   </button>
 </div>
 
