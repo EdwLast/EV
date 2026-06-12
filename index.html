@@ -3734,6 +3734,29 @@ function toggleCargadores() {
     if (txt) txt.textContent = visible ? 'Ver cargadores ▾' : 'Ocultar cargadores ▴';
 }
 
+// Calcula el km donde el SOC entra en zona de reserva (= inicio de la
+// ventana de parada obligatoria) para un tramo dado.
+const MARGEN_SOC = 10;
+function kmInicioVentana(t, kmPrev, kmFin) {
+    if (t.esFinal) return kmFin; // tramo final → sin ventana de parada
+    let km;
+    if (t.socInicioTramo == null || !t.kmTotales) {
+        km = kmFin;
+    } else {
+        const socUmbral = t.socMin + MARGEN_SOC;
+        const kmHasta   = ((t.socInicioTramo - socUmbral) / 100) * t.kmTotales;
+        km = kmPrev + Math.max(0, kmHasta);
+    }
+    km = Math.min(Math.max(km, kmPrev), kmFin);
+    // Garantía mínima: siempre resaltar al menos el último tramo cercano
+    // al punto de carga (hasta 20km o 30% del tramo, lo que sea menor),
+    // para que la parada obligatoria sea visible incluso si el cálculo
+    // de SOC da una ventana vacía (p.ej. tramo corto tras una carga parcial).
+    const minVentana = Math.min(20, (kmFin - kmPrev) * 0.3);
+    if (kmFin - km < minVentana) km = Math.max(kmPrev, kmFin - minVentana);
+    return km;
+}
+
 // ── Re-renderizar chips con los colores correctos según el plan actual ──
 function refreshChipColors(tramos) {
     if (!window._rutaData) return;
@@ -3768,20 +3791,12 @@ const ZONE_CLASSES = ['chip-z0','chip-z1','chip-z2','chip-z3','chip-z4','chip-z5
 function buildLegendHtml(tramosIniciales, zonas, zoneColors, estaciones) {
     const paradaTramos = tramosIniciales.filter(t => !t.esFinal);
     const destTramo    = tramosIniciales.find(t => t.esFinal);
-    const MARGEN_SOC   = 10;
-
     let html = `<div class="zone-legend">`;
     let kmPrev = 0;
     paradaTramos.forEach((t, i) => {
         const color = zoneColors[i] || '#888';
         const label = i === 0 ? 'Salida → Parada 1' : `Parada ${i} → Parada ${i+1}`;
-        let kmStop = t.kmAcum;
-        if (t.socInicioTramo != null && t.kmTotales) {
-            const socUmbral = t.socMin + MARGEN_SOC;
-            const kmHasta   = ((t.socInicioTramo - socUmbral) / 100) * t.kmTotales;
-            kmStop = Math.min(Math.max(kmPrev + Math.max(0, kmHasta), kmPrev), t.kmAcum);
-        }
-        kmStop = Math.round(kmStop);
+        const kmStop = Math.round(kmInicioVentana(t, kmPrev, t.kmAcum));
         const rango = kmStop < t.kmAcum
             ? `Detenerse entre km ${kmStop} – km ${t.kmAcum}`
             : `Detenerse en km ${t.kmAcum}`;
@@ -4755,6 +4770,7 @@ function renderViaje(tramos) {
     let kmTotales = cap > 0 ? (cap / consumo) * 100 : 0;
     let hayError  = false;
     let paradaNum = 0;
+    let kmPrevTramo = 0;
 
     tramos.forEach((t) => {
         const socLleg   = t.socLlegada;
@@ -4768,10 +4784,15 @@ function renderViaje(tramos) {
             badge = `<span class="stop-badge badge-dest">🏁 Destino</span>`;
         } else {
             paradaNum++;
-            const color = t.zonaColor || 'var(--accent)';
-            badge = `<span class="stop-badge" style="background:${color}22;border:1px solid ${color};color:${color}">⚡ Parada ${paradaNum}</span>`;
+            const color  = t.zonaColor || 'var(--accent)';
+            const kmStop = Math.round(kmInicioVentana(t, kmPrevTramo, t.kmAcum));
+            const rango  = kmStop < t.kmAcum
+                ? `km ${kmStop}–${t.kmAcum}`
+                : `km ${t.kmAcum}`;
+            badge = `<span class="stop-badge" style="background:${color}22;border:1px solid ${color};color:${color}">⚡ Parada ${paradaNum} <span style="opacity:0.75;font-family:'DM Mono',monospace;font-size:10px">(${rango})</span></span>`;
         }
         if (alerta) badge += ` <span class="stop-badge badge-warn">⚠ Sin batería</span>`;
+        kmPrevTramo = t.kmAcum;
 
         let cargaHtml = '';
         if (t.carga) {
@@ -6216,23 +6237,8 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
         acumKm.push(acumKm[i-1] + haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]));
     }
 
-    // Margen de "batería baja" (puntos % por encima del mínimo) que define
-    // visualmente cuándo empieza la ventana de parada obligatoria.
-    const MARGEN_SOC = 10;
-
-    // Calcula, para un tramo, el km donde el SOC entra en la zona de reserva
-    // (socMin + MARGEN_SOC). Antes de ese punto el viaje es "seguro" (tenue);
-    // después, la batería está cerca de la reserva y debe completarse la
-    // carga en algún punto antes de kmFin (intenso).
-    const kmInicioVentana = (t, kmPrev, kmFin) => {
-        if (t.socInicioTramo == null || !t.kmTotales) return kmFin; // sin datos → todo tenue
-        const socUmbral = t.socMin + MARGEN_SOC;
-        const kmHastaUmbral = ((t.socInicioTramo - socUmbral) / 100) * t.kmTotales;
-        const km = kmPrev + Math.max(0, kmHastaUmbral);
-        return Math.min(Math.max(km, kmPrev), kmFin);
-    };
-
     // Extrae los puntos de ruta cuyo km acumulado está en [kmA, kmB]
+    // (kmInicioVentana se define una sola vez, ver más abajo en el archivo)
     const extraerSeg = (kmA, kmB) => {
         const seg = [];
         for (let j = 0; j < coords.length; j++) {
@@ -6257,7 +6263,7 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
             const segTotal = extraerSeg(kmPrev, kmFin);
             if (segTotal.length >= 2) {
                 const polyDim = L.polyline(segTotal, {
-                    color, weight: 5, opacity: 0.30, lineCap: 'round', interactive: false
+                    color, weight: 8, opacity: 0.30, lineCap: 'round', interactive: false
                 }).addTo(_leafletMap);
                 _zonaCirculos.push(polyDim);
             }
@@ -6266,7 +6272,7 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
                 const segStop = extraerSeg(kmStop, kmFin);
                 if (segStop.length >= 2) {
                     const polyBright = L.polyline(segStop, {
-                        color, weight: 7, opacity: 0.95, lineCap: 'round', interactive: false
+                        color, weight: 12, opacity: 0.95, lineCap: 'round', interactive: false
                     }).addTo(_leafletMap);
                     _zonaCirculos.push(polyBright);
                 }
