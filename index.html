@@ -1636,6 +1636,12 @@
     animation: slideDown 0.25s ease;
   }
   .ham-drawer.open { display: block; }
+ 
+ /* Botones de estilo de mapa más arriba */
+.leaflet-control-container .leaflet-top.leaflet-right .map-style-buttons {
+    margin-top: 45px !important;
+}
+
 </style>
 </head>
 <body>
@@ -2689,13 +2695,19 @@ function distanciaMinRuta(lat, lon, routePoints) {
 }
 
 // ── Posición km aproximada de una estación en la ruta ──
-function kmEnRuta(lat, lon, routePoints, totalKm) {
+function kmEnRuta(lat, lon, routeCoords, totalKm) {
     let minDist = Infinity, bestIdx = 0;
-    for (let i = 0; i < routePoints.length; i++) {
-        const d = haversine(lat, lon, routePoints[i][0], routePoints[i][1]);
+    for (let i = 0; i < routeCoords.length; i++) {
+        const d = haversine(lat, lon, routeCoords[i][0], routeCoords[i][1]);
         if (d < minDist) { minDist = d; bestIdx = i; }
     }
-    return Math.round((bestIdx / (routePoints.length-1)) * totalKm);
+    // Calcular distancia acumulada REAL hasta ese punto
+    let acum = 0;
+    for (let i = 1; i <= bestIdx; i++) {
+        acum += haversine(routeCoords[i-1][0], routeCoords[i-1][1], 
+                          routeCoords[i][0], routeCoords[i][1]);
+    }
+    return acum;
 }
 
 // =====================================================
@@ -4789,8 +4801,9 @@ function renderViaje(tramos) {
             const rango  = kmStop < t.kmAcum
                 ? `km ${kmStop}–${t.kmAcum}`
                 : `km ${t.kmAcum}`;
-            const nombreCargador = (t.label && t.label !== `Parada ${paradaNum}`) ? ` — ${t.label}` : '';
-            badge = `<span class="stop-badge" style="background:${color}22;border:1px solid ${color};color:${color}">⚡ Parada ${paradaNum}${nombreCargador} <span style="opacity:0.75;font-family:'DM Mono',monospace;font-size:10px">(${rango})</span></span>`;
+           const nombreCargador = t.label && t.label !== `Parada ${paradaNum}` ? ` — ${t.label}` : '';
+const badgeText = `⚡ Parada ${paradaNum}${nombreCargador}`;
+badge = `<span class="stop-badge" style="background:${color}22;border:1px solid ${color};color:${color}">${badgeText} <span style="opacity:0.75;font-family:'DM Mono',monospace;font-size:10px">(${rango})</span></span>`;
         }
         if (alerta) badge += ` <span class="stop-badge badge-warn">⚠ Sin batería</span>`;
         kmPrevTramo = t.kmAcum;
@@ -6257,7 +6270,7 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
         const color = t.zonaColor || ZONA_COLOR[i % ZONA_COLOR.length];
 
         // Ventana de parada obligatoria: desde donde el SOC entra en reserva hasta kmFin
-        const kmStop = kmInicioVentana(t, kmPrev, kmFin);
+        const kmStop = t.esFinal ? kmFin : (t.est?.kmPos || kmInicioVentana(t, kmPrev, kmFin));
 
         try {
             // Tramo completo, tenue (recorrido seguro, no es necesario cargar aún)
