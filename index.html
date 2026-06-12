@@ -1838,12 +1838,12 @@
     <div class="section-body" style="padding-top:12px;padding-bottom:12px">
       <div class="row" style="margin-bottom:0">
         <div class="field-group">
-          <label class="field-label">⚡ Potencia cargador (kW)</label>
+          <label class="field-label" style="white-space:nowrap;font-size:9px;min-height:14px;display:flex;align-items:center">⚡ Potencia (kW)</label>
           <input type="number" id="ham-potencia" value="7" step="0.1" min="0.5"
                  oninput="sincronizarPotenciaCosto()">
         </div>
         <div class="field-group">
-          <label class="field-label">💰 Costo ($/kWh)</label>
+          <label class="field-label" style="white-space:nowrap;font-size:9px;min-height:14px;display:flex;align-items:center">💰 Costo ($/kWh)</label>
           <input type="number" id="ham-costo" value="4.5" step="0.1" min="0"
                  oninput="sincronizarPotenciaCosto()">
         </div>
@@ -3742,7 +3742,7 @@ function refreshChipColors(tramos) {
     const zonas = calcularZonasDesdeTramos(estaciones, tramos);
     window._rutaData.zonas = zonas;
 
-    const legendHtml  = buildLegendHtml(tramos, zonas, ZONE_COLORS);
+    const legendHtml  = buildLegendHtml(tramos, zonas, ZONE_COLORS, estaciones);
     const chipsInner  = buildChipsHtml(estaciones, zonas, ZONE_CLASSES, _currentSort);
 
     const wrap = document.querySelector('.station-list-wrap');
@@ -3765,15 +3765,34 @@ const ZONE_COLORS  = ['#f87171','#fbbf24','#34d399','#60a5fa','#a78bfa','#f472b6
 const ZONE_CLASSES = ['chip-z0','chip-z1','chip-z2','chip-z3','chip-z4','chip-z5'];
 
 // ── Legend HTML builder ──
-function buildLegendHtml(tramosIniciales, zonas, zoneColors) {
+function buildLegendHtml(tramosIniciales, zonas, zoneColors, estaciones) {
     const paradaTramos = tramosIniciales.filter(t => !t.esFinal);
     const destTramo    = tramosIniciales.find(t => t.esFinal);
+
+    // Km mínimo de cargadores válidos por zona (= inicio de la ventana de parada)
+    const kmMinPorZona = {};
+    if (estaciones) {
+        estaciones.forEach(st => {
+            const z = zonas[st.id];
+            if (z == null || z < 0) return;
+            if (kmMinPorZona[z] === undefined || st.kmPos < kmMinPorZona[z]) {
+                kmMinPorZona[z] = st.kmPos;
+            }
+        });
+    }
+
     let html = `<div class="zone-legend">`;
     let kmPrev = 0;
     paradaTramos.forEach((t, i) => {
         const color = zoneColors[i] || '#888';
         const label = i === 0 ? 'Salida → Parada 1' : `Parada ${i} → Parada ${i+1}`;
-        html += `<div class="zone-legend-item"><div class="zone-dot" style="background:${color}"></div><span>${label} <span style="color:var(--text-muted);font-family:'DM Mono',monospace;font-size:10px">(km ${kmPrev} – km ${t.kmAcum})</span></span></div>`;
+        const kmStop = kmMinPorZona[i] !== undefined
+            ? Math.max(kmPrev, Math.min(kmMinPorZona[i], t.kmAcum))
+            : t.kmAcum;
+        const rango = kmStop < t.kmAcum
+            ? `Detenerse entre km ${kmStop} – km ${t.kmAcum}`
+            : `Detenerse en km ${t.kmAcum}`;
+        html += `<div class="zone-legend-item"><div class="zone-dot" style="background:${color}"></div><span>${label}<br><span style="color:var(--text-muted);font-family:'DM Mono',monospace;font-size:10px">${rango}</span></span></div>`;
         kmPrev = t.kmAcum;
     });
     if (paradaTramos.length > 0) {
@@ -3975,7 +3994,7 @@ function renderMap() {
 
         const color   = ZONE_COLORS[zona] || '#888';
         const opacity = st.statusId === 100 ? 0.4 : 1.0;
-        const size    = st.potencia >= 100 ? 18 : st.potencia >= 50 ? 15 : st.potencia >= 22 ? 13 : 11;
+        const size    = st.potencia >= 100 ? 26 : st.potencia >= 50 ? 22 : st.potencia >= 22 ? 19 : 16;
 
         // Forma y badge según fuente:
         // OCM  → círculo (fuente clásica, sin badge)
@@ -4038,7 +4057,7 @@ function renderMap() {
 
     // Pintar la ruta por tramos (color de cada parada) en lugar de círculos de zona
     if (window._rutaData?.tramosIniciales?.length) {
-        pintarTramosRuta(coords, window._rutaData.tramosIniciales, distKmDeRuta(coords));
+        pintarTramosRuta(coords, window._rutaData.tramosIniciales, distKmDeRuta(coords), estaciones, zonas);
     }
 
     // Show speed cameras if already loaded
@@ -4069,10 +4088,10 @@ function renderMap() {
 
     // Control de estilo de mapa
     const StyleControl = L.Control.extend({
-        options: { position: 'topright' },
+        options: { position: 'bottomright' },
         onAdd() {
             const wrap = L.DomUtil.create('div', '');
-            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:6px;';
             Object.entries(MAP_STYLES).forEach(([key, s]) => {
                 const btn = L.DomUtil.create('button', 'map-style-btn', wrap);
                 btn.dataset.style = key;
@@ -4425,7 +4444,7 @@ async function buscarRuta() {
                                  origCoord: orig, destCoord: dest,
                                  pasos: pasos || [] };
 
-            const legendHtml = buildLegendHtml(tramosIniciales, zonas, ZONE_COLORS);
+            const legendHtml = buildLegendHtml(tramosIniciales, zonas, ZONE_COLORS, estaciones);
             const sortRow = `<div class="sort-row">
                 <span class="sort-label">Orden:</span>
                 <button class="sort-btn active" id="sort-ruta"    onclick="setSort('ruta')">📍 Recorrido</button>
@@ -5305,8 +5324,8 @@ async function trazarRutaCiudad() {
 
         // Viaje corto: solo mostrar botones Guardar + Iniciar Navegación
         if (resEl) resEl.innerHTML = `
-            <div style="background:rgba(0,229,255,0.08);border:1px solid var(--accent);border-radius:8px;padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px">
-                ✅ <b style="color:var(--accent)">${distKm} km</b> · ~${tiempoStr} · alcanzás sin cargar
+            <div style="background:rgba(16,185,129,0.08);border:1px solid var(--success);border-radius:8px;padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px">
+                ✅ <b style="color:var(--success)">${distKm} km</b> · ~${tiempoStr} · alcanzás sin cargar
             </div>`;
 
         mostrarRouteOverlay(); // mostrar route-map antes de Leaflet
@@ -6185,10 +6204,14 @@ function distKmDeRuta(coords) {
 
 // Pinta la polyline de la ruta en segmentos, cada uno con el color de la
 // parada de carga a la que pertenece (en vez de círculos de "zona").
-// El segmento [kmPrev, kmAcum] representa el tramo que el conductor recorre
-// antes de llegar a esa parada — exactamente el rango que debe completar
-// con la carga disponible.
-function pintarTramosRuta(coords, tramos, distTotalKm) {
+//
+// Cada tramo [kmPrev, kmFin] se pinta en DOS tonos:
+//  - tenue (todo el tramo): tramo recorrido, sin necesidad de cargar aún
+//  - intenso (ventana [kmStop, kmFin]): rango donde se ENCUENTRA la parada
+//    obligatoria — kmStop es la posición del cargador más cercano (hacia
+//    atrás) que pertenece a esta zona, es decir el inicio de la "ventana"
+//    de cargadores válidos para esta parada.
+function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
     if (!_leafletMap || !coords?.length || !tramos?.length || !distTotalKm) return;
 
     const ZONA_COLOR = ['#f87171','#fb923c','#fbbf24','#34d399','#60a5fa','#a78bfa'];
@@ -6199,26 +6222,61 @@ function pintarTramosRuta(coords, tramos, distTotalKm) {
         acumKm.push(acumKm[i-1] + haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]));
     }
 
+    // Para cada zona, encontrar el km mínimo entre los cargadores válidos
+    // (= inicio de la "ventana" donde está la parada obligatoria)
+    const kmMinPorZona = {};
+    if (estaciones && zonas) {
+        estaciones.forEach(st => {
+            const z = zonas[st.id];
+            if (z == null || z < 0) return;
+            if (kmMinPorZona[z] === undefined || st.kmPos < kmMinPorZona[z]) {
+                kmMinPorZona[z] = st.kmPos;
+            }
+        });
+    }
+
+    // Extrae los puntos de ruta cuyo km acumulado está en [kmA, kmB]
+    const extraerSeg = (kmA, kmB) => {
+        const seg = [];
+        for (let j = 0; j < coords.length; j++) {
+            if (acumKm[j] >= kmA - 0.05 && acumKm[j] <= kmB + 0.05) seg.push(coords[j]);
+        }
+        return seg;
+    };
+
     // Límites de cada tramo: 0 → tramo1.kmAcum → tramo2.kmAcum → ... → destino
     let kmPrev = 0;
     tramos.forEach((t, i) => {
         const kmFin = Math.min(t.kmAcum, distTotalKm);
         if (kmFin <= kmPrev) { kmPrev = kmFin; return; }
 
-        // Extraer los puntos de la ruta cuyo km acumulado está en [kmPrev, kmFin]
-        const seg = [];
-        for (let j = 0; j < coords.length; j++) {
-            if (acumKm[j] >= kmPrev - 0.05 && acumKm[j] <= kmFin + 0.05) seg.push(coords[j]);
-        }
-        if (seg.length >= 2) {
-            const color = t.zonaColor || ZONA_COLOR[i % ZONA_COLOR.length];
-            try {
-                const poly = L.polyline(seg, {
-                    color, weight: 6, opacity: 0.85, lineCap: 'round', interactive: false
+        const color = t.zonaColor || ZONA_COLOR[i % ZONA_COLOR.length];
+
+        // Ventana de parada obligatoria dentro de este tramo
+        let kmStop = kmMinPorZona[i] !== undefined
+            ? Math.max(kmPrev, Math.min(kmMinPorZona[i], kmFin))
+            : kmFin; // sin info de cargadores → toda la ventana es el final
+
+        try {
+            // Tramo completo, tenue (recorrido seguro, no es necesario cargar aún)
+            const segTotal = extraerSeg(kmPrev, kmFin);
+            if (segTotal.length >= 2) {
+                const polyDim = L.polyline(segTotal, {
+                    color, weight: 5, opacity: 0.30, lineCap: 'round', interactive: false
                 }).addTo(_leafletMap);
-                _zonaCirculos.push(poly); // reutilizamos el mismo array para poder limpiar
-            } catch(e) { console.error('pintarTramosRuta:', e); }
-        }
+                _zonaCirculos.push(polyDim);
+            }
+            // Ventana donde debe detenerse a cargar: intenso
+            if (!t.esFinal && kmStop < kmFin) {
+                const segStop = extraerSeg(kmStop, kmFin);
+                if (segStop.length >= 2) {
+                    const polyBright = L.polyline(segStop, {
+                        color, weight: 7, opacity: 0.95, lineCap: 'round', interactive: false
+                    }).addTo(_leafletMap);
+                    _zonaCirculos.push(polyBright);
+                }
+            }
+        } catch(e) { console.error('pintarTramosRuta:', e); }
         kmPrev = kmFin;
     });
 }
