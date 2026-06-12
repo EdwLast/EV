@@ -4099,7 +4099,7 @@ function renderMap() {
         options: { position: 'topright' },
         onAdd() {
             const wrap = L.DomUtil.create('div', '');
-            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:70px;';
+            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:54px;';
             Object.entries(MAP_STYLES).forEach(([key, s]) => {
                 const btn = L.DomUtil.create('button', 'map-style-btn', wrap);
                 btn.dataset.style = key;
@@ -4789,7 +4789,8 @@ function renderViaje(tramos) {
             const rango  = kmStop < t.kmAcum
                 ? `km ${kmStop}–${t.kmAcum}`
                 : `km ${t.kmAcum}`;
-            badge = `<span class="stop-badge" style="background:${color}22;border:1px solid ${color};color:${color}">⚡ Parada ${paradaNum} <span style="opacity:0.75;font-family:'DM Mono',monospace;font-size:10px">(${rango})</span></span>`;
+            const nombreCargador = (t.label && t.label !== `Parada ${paradaNum}`) ? ` — ${t.label}` : '';
+            badge = `<span class="stop-badge" style="background:${color}22;border:1px solid ${color};color:${color}">⚡ Parada ${paradaNum}${nombreCargador} <span style="opacity:0.75;font-family:'DM Mono',monospace;font-size:10px">(${rango})</span></span>`;
         }
         if (alerta) badge += ` <span class="stop-badge badge-warn">⚠ Sin batería</span>`;
         kmPrevTramo = t.kmAcum;
