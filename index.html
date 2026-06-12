@@ -6270,8 +6270,7 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
         const color = t.zonaColor || ZONA_COLOR[i % ZONA_COLOR.length];
 
         // Ventana de parada obligatoria: desde donde el SOC entra en reserva hasta kmFin
-        // Usar el kmPos del cargador si existe, sino calcular por SOC
-	const kmStop = t.esFinal ? kmFin : (t.est?.kmPos || t.kmAcum || kmInicioVentana(t, kmPrev, kmFin));
+        const kmStop = t.esFinal ? kmFin : (t.est?.kmPos || kmInicioVentana(t, kmPrev, kmFin));
 
         try {
             // Tramo completo, tenue (recorrido seguro, no es necesario cargar aún)
