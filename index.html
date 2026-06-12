@@ -1833,6 +1833,24 @@
 
   <div style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text-muted);margin-bottom:8px;padding-left:2px">🔋 SIMULACIONES</div>
 
+  <!-- Parámetros compartidos por las 3 simulaciones -->
+  <div class="section-card" style="margin-bottom:10px">
+    <div class="section-body" style="padding-top:12px;padding-bottom:12px">
+      <div class="row" style="margin-bottom:0">
+        <div class="field-group">
+          <label class="field-label">⚡ Potencia cargador (kW)</label>
+          <input type="number" id="ham-potencia" value="7" step="0.1" min="0.5"
+                 oninput="sincronizarPotenciaCosto()">
+        </div>
+        <div class="field-group">
+          <label class="field-label">💰 Costo ($/kWh)</label>
+          <input type="number" id="ham-costo" value="4.5" step="0.1" min="0"
+                 oninput="sincronizarPotenciaCosto()">
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Cálculo por porcentaje -->
   <div class="section-card">
     <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
@@ -5618,7 +5636,14 @@ let _vozEspañol = null;
 function precargarVoces() {
     const cargar = () => {
         const voices = window.speechSynthesis?.getVoices() || [];
-        // Preferir voz española de dispositivo; fallback a cualquier es-*
+        // Respetar la voz elegida por el usuario en Config
+        const savedName = localStorage.getItem('ev-voz-name') || '';
+        if (savedName) {
+            _vozEspañol = voices.find(v => v.name === savedName) || null;
+            if (_vozEspañol) { _vozCargada = voices.length > 0; return; }
+            // si la voz guardada no está disponible aún, sigue intentando con default
+        }
+        // Sin selección guardada (o no encontrada aún): voz española por defecto
         _vozEspañol = voices.find(v => v.lang === 'es-419' && v.localService)
                    || voices.find(v => v.lang.startsWith('es') && v.localService)
                    || voices.find(v => v.lang.startsWith('es'))
@@ -6525,7 +6550,27 @@ function mostrarMensajeSinVehiculo() {
 }
 function toggleHamDrawer() {
     const d = document.getElementById('ham-drawer');
-    if (d) d.classList.toggle('open');
+    if (!d) return;
+    const opening = !d.classList.contains('open');
+    d.classList.toggle('open');
+    if (opening) {
+        const pot = document.getElementById('potencia')?.value;
+        const cos = document.getElementById('costo')?.value;
+        const hamPot = document.getElementById('ham-potencia');
+        const hamCos = document.getElementById('ham-costo');
+        if (hamPot && pot) hamPot.value = pot;
+        if (hamCos && cos) hamCos.value = cos;
+    }
+}
+
+function sincronizarPotenciaCosto() {
+    const pot = document.getElementById('ham-potencia')?.value;
+    const cos = document.getElementById('ham-costo')?.value;
+    const potHidden = document.getElementById('potencia');
+    const cosHidden = document.getElementById('costo');
+    if (potHidden && pot) potHidden.value = pot;
+    if (cosHidden && cos) cosHidden.value = cos;
+    guardarConfiguracion();
 }
 
 function calcularHamPorcentaje() {
@@ -6706,13 +6751,13 @@ function calcularHamKm() {
     </div>
   </div>
 
-  <!-- Botón detener — debajo del panel de instrucciones (top fijo) -->
+  <!-- Botón detener — abajo a la derecha, sobre el mapa, sin tapar overlay/alertas -->
   <button id="btn-detener-float" onclick="detenerNavegacion()"
-          style="display:none;position:fixed;top:74px;right:12px;
+          style="display:none;position:fixed;bottom:70px;right:12px;
                  z-index:520;
                  background:#f87171;border:none;border-radius:20px;
                  color:#fff;font-family:'Nunito Sans',sans-serif;font-weight:800;
-                 font-size:12px;padding:7px 14px;
+                 font-size:12px;padding:8px 16px;
                  box-shadow:0 3px 12px rgba(248,113,113,0.5);
                  cursor:pointer;white-space:nowrap">
     ⏹ Detener
