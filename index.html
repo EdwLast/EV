@@ -3768,27 +3768,20 @@ const ZONE_CLASSES = ['chip-z0','chip-z1','chip-z2','chip-z3','chip-z4','chip-z5
 function buildLegendHtml(tramosIniciales, zonas, zoneColors, estaciones) {
     const paradaTramos = tramosIniciales.filter(t => !t.esFinal);
     const destTramo    = tramosIniciales.find(t => t.esFinal);
-
-    // Km mínimo de cargadores válidos por zona (= inicio de la ventana de parada)
-    const kmMinPorZona = {};
-    if (estaciones) {
-        estaciones.forEach(st => {
-            const z = zonas[st.id];
-            if (z == null || z < 0) return;
-            if (kmMinPorZona[z] === undefined || st.kmPos < kmMinPorZona[z]) {
-                kmMinPorZona[z] = st.kmPos;
-            }
-        });
-    }
+    const MARGEN_SOC   = 10;
 
     let html = `<div class="zone-legend">`;
     let kmPrev = 0;
     paradaTramos.forEach((t, i) => {
         const color = zoneColors[i] || '#888';
         const label = i === 0 ? 'Salida → Parada 1' : `Parada ${i} → Parada ${i+1}`;
-        const kmStop = kmMinPorZona[i] !== undefined
-            ? Math.max(kmPrev, Math.min(kmMinPorZona[i], t.kmAcum))
-            : t.kmAcum;
+        let kmStop = t.kmAcum;
+        if (t.socInicioTramo != null && t.kmTotales) {
+            const socUmbral = t.socMin + MARGEN_SOC;
+            const kmHasta   = ((t.socInicioTramo - socUmbral) / 100) * t.kmTotales;
+            kmStop = Math.min(Math.max(kmPrev + Math.max(0, kmHasta), kmPrev), t.kmAcum);
+        }
+        kmStop = Math.round(kmStop);
         const rango = kmStop < t.kmAcum
             ? `Detenerse entre km ${kmStop} – km ${t.kmAcum}`
             : `Detenerse en km ${t.kmAcum}`;
@@ -4088,10 +4081,10 @@ function renderMap() {
 
     // Control de estilo de mapa
     const StyleControl = L.Control.extend({
-        options: { position: 'bottomright' },
+        options: { position: 'topright' },
         onAdd() {
             const wrap = L.DomUtil.create('div', '');
-            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:6px;';
+            wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:70px;';
             Object.entries(MAP_STYLES).forEach(([key, s]) => {
                 const btn = L.DomUtil.create('button', 'map-style-btn', wrap);
                 btn.dataset.style = key;
@@ -4550,7 +4543,8 @@ function calcularTramosRuta(estaciones, distKm, cap, consumo, socInicio, socMin,
         carga.socInicio = Math.max(0, socLlegada);
         carga.pot = potenciaEfectiva(kw); // potencia efectiva = min(cargador, max_vehículo)
 
-        tramos.push({ kmAcum: mejorEst.kmPos, lat: mejorEst.lat, lon: mejorEst.lon, socLlegada, carga, esFinal: false, zonaColor: ZONE_COLORS[zona] || '#f472b6' });
+        tramos.push({ kmAcum: mejorEst.kmPos, lat: mejorEst.lat, lon: mejorEst.lon, socLlegada, carga, esFinal: false, zonaColor: ZONE_COLORS[zona] || '#f472b6',
+                       socInicioTramo: soc, kmTotales, socMin });
         soc = carga.socFinal;
         kmRecorridos = mejorEst.kmPos;
         primeraCargaForzada = false;
@@ -6222,18 +6216,21 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
         acumKm.push(acumKm[i-1] + haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]));
     }
 
-    // Para cada zona, encontrar el km mínimo entre los cargadores válidos
-    // (= inicio de la "ventana" donde está la parada obligatoria)
-    const kmMinPorZona = {};
-    if (estaciones && zonas) {
-        estaciones.forEach(st => {
-            const z = zonas[st.id];
-            if (z == null || z < 0) return;
-            if (kmMinPorZona[z] === undefined || st.kmPos < kmMinPorZona[z]) {
-                kmMinPorZona[z] = st.kmPos;
-            }
-        });
-    }
+    // Margen de "batería baja" (puntos % por encima del mínimo) que define
+    // visualmente cuándo empieza la ventana de parada obligatoria.
+    const MARGEN_SOC = 10;
+
+    // Calcula, para un tramo, el km donde el SOC entra en la zona de reserva
+    // (socMin + MARGEN_SOC). Antes de ese punto el viaje es "seguro" (tenue);
+    // después, la batería está cerca de la reserva y debe completarse la
+    // carga en algún punto antes de kmFin (intenso).
+    const kmInicioVentana = (t, kmPrev, kmFin) => {
+        if (t.socInicioTramo == null || !t.kmTotales) return kmFin; // sin datos → todo tenue
+        const socUmbral = t.socMin + MARGEN_SOC;
+        const kmHastaUmbral = ((t.socInicioTramo - socUmbral) / 100) * t.kmTotales;
+        const km = kmPrev + Math.max(0, kmHastaUmbral);
+        return Math.min(Math.max(km, kmPrev), kmFin);
+    };
 
     // Extrae los puntos de ruta cuyo km acumulado está en [kmA, kmB]
     const extraerSeg = (kmA, kmB) => {
@@ -6252,10 +6249,8 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
 
         const color = t.zonaColor || ZONA_COLOR[i % ZONA_COLOR.length];
 
-        // Ventana de parada obligatoria dentro de este tramo
-        let kmStop = kmMinPorZona[i] !== undefined
-            ? Math.max(kmPrev, Math.min(kmMinPorZona[i], kmFin))
-            : kmFin; // sin info de cargadores → toda la ventana es el final
+        // Ventana de parada obligatoria: desde donde el SOC entra en reserva hasta kmFin
+        const kmStop = kmInicioVentana(t, kmPrev, kmFin);
 
         try {
             // Tramo completo, tenue (recorrido seguro, no es necesario cargar aún)
