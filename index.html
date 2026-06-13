@@ -1778,10 +1778,9 @@
 <div class="vehicle-card" style="margin-top:12px">
   <div class="card-title">🗺️ Estilo de mapa</div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px" id="map-style-buttons-config">
-    <button class="map-style-btn" data-style="nav"    onclick="setMapStyle('nav')"    style="flex:1;min-width:70px">🧭 Nav</button>
-    <button class="map-style-btn" data-style="claro"  onclick="setMapStyle('claro')"  style="flex:1;min-width:70px">☀️ Claro</button>
-    <button class="map-style-btn" data-style="oscuro" onclick="setMapStyle('oscuro')" style="flex:1;min-width:70px">🌙 Oscuro</button>
-    <button class="map-style-btn" data-style="detalle" onclick="setMapStyle('detalle')" style="flex:1;min-width:70px">🔎 Detalle</button>
+    <button class="map-style-btn" data-style="nav"    onclick="setMapStyleDefault('nav')"    style="flex:1;min-width:70px">🧭 Nav</button>
+    <button class="map-style-btn" data-style="oscuro" onclick="setMapStyleDefault('oscuro')" style="flex:1;min-width:70px">🌙 Oscuro</button>
+    <button class="map-style-btn" data-style="detalle" onclick="setMapStyleDefault('detalle')" style="flex:1;min-width:70px">🔎 Detalle</button>
   </div>
 </div>
 
@@ -3687,7 +3686,7 @@ function guardarConfiguracion() {
         v_consumo_ac:      document.getElementById('v_consumo_ac')?.value,
         acActivo, acViajeActivo, modoConsumo,
         _modoCarga: _modoCarga || 'manual',
-        _mapStyle: localStorage.getItem('ev-map-style') || 'nav',
+        _mapStyle: localStorage.getItem('ev-map-style-default') || localStorage.getItem('ev-map-style') || 'nav',
     };
     localStorage.setItem('ev-config', JSON.stringify(cfg));
 }
@@ -3899,12 +3898,6 @@ const MAP_STYLES = {
         attr:  '© <a href="https://www.openstreetmap.org/copyright">OSM</a> © <a href="https://carto.com/attributions">CARTO</a>',
         sub:   'abcd',
     },
-    claro: {
-        label: '☀️ Claro',
-        url:   'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-        attr:  '© OSM © CARTO',
-        sub:   'abcd',
-    },
     oscuro: {
         label: '🌙 Oscuro',
         url:   'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -3951,6 +3944,14 @@ function setMapStyle(style) {
     });
 }
 
+// Cambia el estilo Y lo guarda como "modo por defecto" del usuario (Config).
+// Cambios temporales (Detalle al elegir destino, o cambios durante la
+// navegación) NO deben llamar a esta función — solo los botones de Config.
+function setMapStyleDefault(style) {
+    setMapStyle(style);
+    localStorage.setItem('ev-map-style-default', style);
+}
+
 function ciclarMapStyle() {
     const estilos = Object.keys(MAP_STYLES);
     const idx     = estilos.indexOf(_mapStyle);
@@ -3980,7 +3981,7 @@ function renderMap() {
     document.getElementById('toggle-cargadores-wrap')?.classList.toggle('on', _cargadoresVisibles);
 
     // Cargar estilo guardado
-    _mapStyle  = localStorage.getItem('ev-map-style') || 'nav';
+    _mapStyle  = localStorage.getItem('ev-map-style-default') || localStorage.getItem('ev-map-style') || 'nav';
     const ms   = MAP_STYLES[_mapStyle] || MAP_STYLES.nav;
     _tileLayer = L.tileLayer(ms.url, {
         attribution: ms.attr, subdomains: ms.sub, maxZoom: 19
@@ -5830,7 +5831,8 @@ async function iniciarNavegacion() {
     setTimeout(() => {
         if (_leafletMap) {
             _leafletMap.invalidateSize();
-            if (_mapStyle !== 'nav' && _mapStyle !== 'oscuro') setMapStyle('nav');
+            // Si quedó en "Detalle" (sin restaurar), volver al modo por defecto del usuario
+            if (_mapStyle === 'detalle') setMapStyle(localStorage.getItem('ev-map-style-default') || localStorage.getItem('ev-map-style') || 'nav');
         }
         activarMapaFullscreen(); // ← expandir mapa a pantalla completa
     }, 300);
@@ -5862,6 +5864,9 @@ function detenerNavegacion() {
     
     salirMapaFullscreen();
     _navFromCarga = false;
+    // Volver al modo de mapa por defecto configurado por el usuario,
+    // sin importar qué estilo se haya usado durante la navegación
+    setMapStyle(localStorage.getItem('ev-map-style-default') || localStorage.getItem('ev-map-style') || 'nav');
     setTimeout(() => {
         mostrarCityMap();
         // Colapsar y limpiar el overlay de resultados
