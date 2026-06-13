@@ -6269,11 +6269,6 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
 
         const color = t.zonaColor || ZONA_COLOR[i % ZONA_COLOR.length];
 
-        // Ventana de parada obligatoria: desde donde el SOC entra en reserva hasta kmFin.
-        // (kmFin ya es la posición real del cargador gracias al fix de kmEnRuta —
-        //  no usar t.est.kmPos aquí porque equivale a kmFin y anularía la ventana)
-        const kmStop = kmInicioVentana(t, kmPrev, kmFin);
-
         try {
             // Tramo completo, tenue (recorrido seguro, no es necesario cargar aún)
             const segTotal = extraerSeg(kmPrev, kmFin);
@@ -6283,15 +6278,15 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
                 }).addTo(_leafletMap);
                 _zonaCirculos.push(polyDim);
             }
-            // Ventana donde debe detenerse a cargar: intenso
-            if (!t.esFinal && kmStop < kmFin) {
-                const segStop = extraerSeg(kmStop, kmFin);
-                if (segStop.length >= 2) {
-                    const polyBright = L.polyline(segStop, {
-                        color, weight: 12, opacity: 0.95, lineCap: 'round', interactive: false
-                    }).addTo(_leafletMap);
-                    _zonaCirculos.push(polyBright);
-                }
+            // Círculo en la posición del cargador de esta parada (radio fijo en
+            // píxeles → se ve igual sin importar el zoom del mapa)
+            if (!t.esFinal && isFinite(t.lat) && isFinite(t.lon)) {
+                const circ = L.circleMarker([t.lat, t.lon], {
+                    radius: 26, color, weight: 2,
+                    fillColor: color, fillOpacity: 0.25, opacity: 0.85,
+                    interactive: false
+                }).addTo(_leafletMap);
+                _zonaCirculos.push(circ);
             }
         } catch(e) { console.error('pintarTramosRuta:', e); }
         kmPrev = kmFin;
