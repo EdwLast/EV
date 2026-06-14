@@ -1910,6 +1910,20 @@
       <div class="result-box" id="ham-resultado3"></div>
     </div>
   </div>
+
+  <!-- Diagnóstico UTE API -->
+  <div class="section-card" style="margin-top:10px;border-color:rgba(251,191,36,0.3)">
+    <div class="section-header collapsible collapsed" onclick="toggleSeccion(this)">
+      <div class="section-icon" style="background:rgba(251,191,36,0.1)">🔧</div>
+      <div class="section-title">Diagnóstico API UTE</div>
+    </div>
+    <div class="section-body collapsed">
+      <button class="btn" onclick="diagnosticoUTE()" style="width:100%;margin-bottom:8px">
+        🔍 Probar conexión UTE
+      </button>
+      <div id="ute-diag-result" style="font-family:'DM Mono',monospace;font-size:11px;line-height:1.8;color:var(--text-muted);white-space:pre-wrap;word-break:break-all"></div>
+    </div>
+  </div>
 </div>
 
 <!-- Botón Viaje flotante -->
@@ -2732,16 +2746,18 @@ async function buscarCargadoresCercanos() {
     }
 
     // ── 2. Obtener cargadores UTE live (o fallback offline) en paralelo ──
-    uteObtenerCargadores().then(({ cargadores, offline, edadHoras }) => {
-        if (offline) {
+    uteObtenerCargadores().then(({ cargadores, offline, edadHoras, errorMsg }) => {
+        if (!offline) {
+            mostrarToast(`✅ ${cargadores.length} cargadores UTE en tiempo real`, 3000);
+        } else if (errorMsg) {
+            // Mostrar el error real (reemplaza el "Sin conexión" genérico)
+            mostrarToast(`⚠ ${errorMsg.slice(0,100)}`, 8000);
+        } else {
             const msg = edadHoras != null
-                ? `📶 Sin conexión — mostrando datos de hace ${edadHoras}h`
+                ? `📶 Sin conexión — datos de hace ${edadHoras}h`
                 : '📶 Sin conexión — datos de referencia (sin estado real)';
             mostrarToast(msg, 5000);
-        } else {
-            mostrarToast(`✅ ${cargadores.length} cargadores UTE en tiempo real`, 3000);
         }
-        // Mostrar cargadores UTE en city-map
         if (_cityMap && cargadores.length) agregarMarcadoresCiudad(cargadores);
     }).catch(() => {});
 
@@ -3373,9 +3389,9 @@ async function uteObtenerCargadores() {
         throw new Error('Lista vacía');
     } catch(err) {
         console.error('[UTE API] Error completo:', err);
-        // Diagnóstico: mostrar el error real durante 10 segundos
-        mostrarToast(`⚠ UTE API error: ${err.message.slice(0,120)}`, 10000);
-        return uteObtenerFallback();
+        const errorMsg = err.message || String(err);
+        const fallback = uteObtenerFallback();
+        return { ...fallback, errorMsg };
     }
 }
 
@@ -5621,7 +5637,83 @@ function reportarOcupacion(chargePointId, status, btn) {
     mostrarToast(status === 'ocupado' ? '🔴 Reportado como ocupado' : '🟢 Reportado como libre', 2500);
 }
 
-// (Integración UTE — ver uteGetToken / uteFetchCargadores)
+// ── DIAGNÓSTICO UTE API ──
+async function diagnosticoUTE() {
+    const el = document.getElementById('ute-diag-result');
+    if (!el) return;
+    const log = (msg, color) => {
+        el.innerHTML += `<span style="color:${color||'var(--text)'}">${msg}</span>\n`;
+    };
+    el.innerHTML = '';
+    log('Iniciando diagnóstico...', '#60a5fa');
+
+    // Paso 1: verificar que el endpoint de la Function existe
+    log('\n── Paso 1: Verificar Function Netlify ──', '#fbbf24');
+    try {
+        const probe = await fetch('/.netlify/functions/ute-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        });
+        log(`HTTP ${probe.status} ${probe.statusText}`, probe.ok ? '#34d399' : '#f87171');
+        const body = await probe.text();
+        log(`Respuesta: ${body.slice(0,300)}`, '#9ca3af');
+
+        if (!probe.ok) {
+            if (probe.status === 404) {
+                log('\n⚠ La Function NO existe en Netlify.', '#f87171');
+                log('→ Verificá que el ZIP se deployó con la carpeta netlify/functions/', '#fbbf24');
+                log('→ En Netlify: Site settings → Functions → Functions directory', '#fbbf24');
+            }
+            return;
+        }
+
+        // Paso 2: extraer token
+        log('\n── Paso 2: Parsear token ──', '#fbbf24');
+        let tokenData;
+        try { tokenData = JSON.parse(body); } catch(e) { log('Error parseando JSON: ' + e.message, '#f87171'); return; }
+        const token = tokenData.accessToken || tokenData.access_token || tokenData.token
+                   || (typeof tokenData === 'string' ? tokenData : null);
+        if (!token) {
+            log('Token NO encontrado en respuesta', '#f87171');
+            log('Campos recibidos: ' + Object.keys(tokenData).join(', '), '#9ca3af');
+            return;
+        }
+        log('✅ Token obtenido: ' + token.slice(0,40) + '...', '#34d399');
+
+        // Paso 3: obtener cargadores
+        log('\n── Paso 3: Obtener cargadores ──', '#fbbf24');
+        const filterBody = {
+            connectorTypes: [{id:1,internalCode:'',text:'Tipo 2',selected:true,icon:''},{id:2,internalCode:'',text:'CCS2',selected:true,icon:''}],
+            connectorStatuses: [{id:1,internalCode:'',text:'Disponible',selected:true,icon:''}],
+            connectorPowers: [{id:1,internalCode:'',text:'0',selected:true,icon:''}],
+            connectorCables: [{id:1,internalCode:'',text:'Con cable',selected:true,icon:''},{id:2,internalCode:'',text:'Sin cable',selected:true,icon:''}],
+            connectorNetworks: [{id:1,internalCode:'PUBLIC',text:'Publica',selected:true,icon:''}],
+        };
+        const stResp = await fetch('/.netlify/functions/ute-stations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, filterBody }),
+        });
+        log(`HTTP ${stResp.status} ${stResp.statusText}`, stResp.ok ? '#34d399' : '#f87171');
+        const stBody = await stResp.text();
+        log(`Respuesta (primeros 400): ${stBody.slice(0,400)}`, '#9ca3af');
+
+        if (stResp.ok) {
+            const stData = JSON.parse(stBody);
+            const count = Array.isArray(stData) ? stData.length : (stData.stations?.length || stData.data?.length || '?');
+            log(`\n✅ ¡ÉXITO! ${count} cargadores recibidos`, '#34d399');
+            if (Array.isArray(stData) && stData[0]) {
+                log('\nPrimer cargador: ' + JSON.stringify(stData[0]).slice(0,300), '#60a5fa');
+            }
+        }
+    } catch(err) {
+        log('\n❌ Error de red: ' + err.message, '#f87171');
+        log('(Puede ser que la Function no exista o CORS)', '#fbbf24');
+    }
+}
+
+
 
 function normalizarRespuestaUTE(data, stationId) {
     // OCPI 2.2 format
