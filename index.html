@@ -1013,10 +1013,10 @@
   /* ── NAV OVERLAY ── */
   .nav-overlay {
     position: fixed;
-    bottom: 62px; left: 0; right: 0;
+    bottom: 0; left: 0; right: 0;
     background: var(--surface);
     border-top: 2px solid var(--accent);
-    padding: 10px 16px 12px;
+    padding: 10px 16px env(safe-area-inset-bottom, 12px);
     z-index: 200;
     display: none;
     box-shadow: 0 -4px 24px rgba(0,229,255,0.18);
@@ -1987,7 +1987,12 @@
 <div class="panel-overlay" id="route-overlay" style="display:none">
 
 <!-- Drag handle para deslizar el panel -->
-<div id="overlay-drag-handle" style="width:40px;height:5px;background:var(--border);border-radius:3px;margin:8px auto 10px;cursor:ns-resize"></div>
+<div id="overlay-drag-handle"
+     style="width:60px;height:5px;background:var(--border);border-radius:3px;
+            margin:0 auto;cursor:ns-resize;
+            padding:12px 40px;  /* área táctil grande */
+            box-sizing:content-box;background-clip:content-box;
+            touch-action:none"></div>
 
 <!-- Botones principales — siempre visibles arriba del panel -->
 <div id="viaje-acciones" style="display:none;gap:10px;margin-bottom:10px;flex-wrap:wrap" class="trip-actions">
@@ -6726,35 +6731,44 @@ function calcularHamKm() {
         const handle = getHandle();
         if (!handle) return;
 
+        // touchstart: registrar posición inicial
         handle.addEventListener('touchstart', e => {
             const overlay = getOverlay(); if (!overlay) return;
             dragging = true;
             startY = e.touches[0].clientY;
             startH = overlay.offsetHeight;
-        }, { passive: true });
+            e.stopPropagation();   // evitar que Leaflet capture este touch
+        }, { passive: false });
 
+        // touchmove: redimensionar el panel Y bloquear el evento al mapa
         handle.addEventListener('touchmove', e => {
             if (!dragging) return;
+            e.preventDefault();         // evita scroll / pan del mapa
+            e.stopPropagation();
             const overlay = getOverlay(); if (!overlay) return;
             const dy = startY - e.touches[0].clientY;
             const newH = Math.max(56, Math.min(window.innerHeight * 0.92, startH + dy));
             overlay.style.height = newH + 'px';
             overlay.classList.remove('expanded','collapsed');
-        }, { passive: true });
+        }, { passive: false });   // passive:false necesario para poder llamar preventDefault
 
-        handle.addEventListener('touchend', () => { dragging = false; });
+        handle.addEventListener('touchend', e => {
+            dragging = false;
+            e.stopPropagation();
+        }, { passive: false });
 
-        // Doble tap en handle: alternar expandido/colapsado
+        // Tap simple en el handle: colapsar ↔ expandir
         let lastTap = 0;
         handle.addEventListener('click', () => {
             const overlay = getOverlay(); if (!overlay) return;
             const now = Date.now();
             if (now - lastTap < 350) {
+                // Doble tap: expandir al máximo
                 overlay.classList.toggle('expanded');
                 overlay.classList.remove('collapsed');
                 overlay.style.height = '';
             } else {
-                // Single tap: colapsar si expandido, expandir si colapsado
+                // Tap simple: colapsar / restaurar
                 overlay.classList.toggle('collapsed');
                 overlay.classList.remove('expanded');
                 overlay.style.height = '';
@@ -6852,9 +6866,9 @@ function calcularHamKm() {
     </div>
   </div>
 
-  <!-- Botón detener — abajo a la derecha, sobre el mapa, sin tapar overlay/alertas -->
+  <!-- Botón detener — posicionado sobre el nav-overlay al iniciar -->
   <button id="btn-detener-float" onclick="detenerNavegacion()"
-          style="display:none;position:fixed;bottom:70px;right:12px;
+          style="display:none;position:fixed;bottom:120px;right:12px;
                  z-index:520;
                  background:#f87171;border:none;border-radius:20px;
                  color:#fff;font-family:'Nunito Sans',sans-serif;font-weight:800;
