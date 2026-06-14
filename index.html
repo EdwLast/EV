@@ -2724,65 +2724,58 @@ let _cityMarkers = [];
 async function buscarCargadoresCercanos() {
     const statusEl = document.getElementById('city-map-status');
 
-    // ── Inicializar mapa INMEDIATAMENTE con vista por defecto (Montevideo) ──
+    // ── 1. Inicializar mapa INMEDIATAMENTE (no espera GPS ni API) ──
     if (!_cityMap) {
         const defaultLat = _lastGPS?.lat || -34.9011;
         const defaultLon = _lastGPS?.lon || -56.1645;
         renderCityMapBase(defaultLat, defaultLon);
-        // Mostrar cargadores UTE estáticos de inmediato (sin esperar GPS)
-        if (typeof CARGADORES_UTE_ESTATICOS !== 'undefined') {
-            const estaticos = CARGADORES_UTE_ESTATICOS.map((c, i) => ({
-                ...c, id: 'ute_static_' + i, dist: undefined
-            }));
-            agregarMarcadoresCiudad(estaticos);
-        }
     }
 
-    if (!navigator.geolocation) {
-        if (statusEl) statusEl.innerHTML = '';
-        return;
-    }
+    // ── 2. Obtener cargadores UTE live (o fallback offline) en paralelo ──
+    uteObtenerCargadores().then(({ cargadores, offline, edadHoras }) => {
+        if (offline) {
+            const msg = edadHoras != null
+                ? `📶 Sin conexión — mostrando datos de hace ${edadHoras}h`
+                : '📶 Sin conexión — datos de referencia (sin estado real)';
+            mostrarToast(msg, 5000);
+        }
+        // Mostrar cargadores UTE en city-map
+        if (_cityMap && cargadores.length) agregarMarcadoresCiudad(cargadores);
+    }).catch(() => {});
+
+    // ── 3. GPS → centrar mapa + OCM cercanos ──
+    if (!navigator.geolocation) { if (statusEl) statusEl.innerHTML = ''; return; }
     if (statusEl) statusEl.innerHTML = `<div class="loading-msg" style="background:rgba(13,20,38,0.7);position:absolute;top:8px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:50;padding:4px 12px;border-radius:20px;font-size:12px"><div class="spinner" style="width:12px;height:12px;display:inline-block;margin-right:6px"></div>Buscando cargadores cercanos...</div>`;
 
     navigator.geolocation.getCurrentPosition(
         async pos => {
             const { latitude: lat, longitude: lon } = pos.coords;
             _lastGPS = { lat, lon };
-            // Centrar en la posición real del usuario
             if (_cityMap) _cityMap.setView([lat, lon], 14);
             try {
                 const url = `https://api.openchargemap.io/v3/poi/?output=json`
                     + `&latitude=${lat}&longitude=${lon}&distance=5&maxresults=30&key=${OCM_API_KEY}`;
                 const r = await fetch(url);
                 const data = await r.json();
-
                 const cargadores = data.map(st => {
                     let maxKw = 0;
                     (st.Connections || []).forEach(c => { if (c.PowerKW && c.PowerKW > maxKw) maxKw = c.PowerKW; });
                     const dist = haversine(lat, lon, st.AddressInfo.Latitude, st.AddressInfo.Longitude);
                     const statusId = st.StatusType?.ID ?? 0;
                     return {
-                        id: st.ID,
-                        nombre: st.AddressInfo.Title,
-                        lat: st.AddressInfo.Latitude,
-                        lon: st.AddressInfo.Longitude,
-                        potencia: maxKw || 7,
-                        dist: dist.toFixed(2),
-                        statusId,
+                        id: st.ID, nombre: st.AddressInfo.Title,
+                        lat: st.AddressInfo.Latitude, lon: st.AddressInfo.Longitude,
+                        potencia: maxKw || 7, dist: dist.toFixed(2), statusId,
                         statusLabel: statusId === 50 ? '✅' : statusId === 75 ? '⚠️' : statusId === 100 ? '❌' : '❓'
                     };
                 }).sort((a,b) => a.dist - b.dist);
-
                 if (statusEl) statusEl.innerHTML = '';
                 renderCityMap(lat, lon, cargadores);
             } catch(e) {
                 if (statusEl) statusEl.innerHTML = '';
             }
         },
-        err => {
-            if (statusEl) statusEl.innerHTML = '';
-            // GPS falló pero el mapa ya está visible con cargadores estáticos
-        },
+        () => { if (statusEl) statusEl.innerHTML = ''; },
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
     );
 }
@@ -3174,95 +3167,267 @@ function distanciaMinRutaFast(lat, lon, routeCoords, maxDist) {
 // ── Base de datos estática de cargadores UTE ──
 // Fuente: portal.ute.com.uy/movilidad-sostenible-carga (actualizado manualmente)
 // Se fusiona con OCM+OSM eliminando duplicados por proximidad (<80m)
+// ══════════════════════════════════════════════════════════
+// CARGADORES UTE — datos estáticos de fallback (offline)
+// Fuente: movilidadelectrica.ute.com.uy / uruguayelectrico.com
+// Se usan cuando no hay conexión a la API de UTE.
+// ══════════════════════════════════════════════════════════
 const CARGADORES_UTE_ESTATICOS = [
     // ── Montevideo ──
-    { nombre:'Palacio Legislativo DC',       lat:-34.9058, lon:-56.1875, potencia:60, conectores:2, tipo:'CCS2' },
-    { nombre:'Banco Central del Uruguay',    lat:-34.9065, lon:-56.1944, potencia:60, conectores:2, tipo:'CCS2' },
-    { nombre:'La Cumparsita DC',             lat:-34.9022, lon:-56.1900, potencia:60, conectores:4, tipo:'CCS2' },
-    // Nuevos confirmados desde uruguayelectrico.com:
-    { nombre:'Plaza Vidiella',               lat:-34.8059, lon:-56.2223, potencia:43, conectores:2, tipo:'Tipo2' },
-    { nombre:'Hospital BSE Peatonal',        lat:-34.9050, lon:-56.1705, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Parque Hotel Montevideo',      lat:-34.9120, lon:-56.1710, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Ancap Buceo DC',               lat:-34.9050, lon:-56.1350, potencia:60, conectores:2, tipo:'CCS2' },
-    { nombre:'Ancap Solanas DC (Ruta Int.)', lat:-34.8310, lon:-55.8170, potencia:60, conectores:2, tipo:'CCS2' },
-    { nombre:'Terminal del Cerro',           lat:-34.8910, lon:-56.3120, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'IMM Ejido',                    lat:-34.9030, lon:-56.1870, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Paso de los Toros',            lat:-32.8130, lon:-56.5140, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'FING Reissig',                 lat:-34.9098, lon:-56.1670, potencia:60, conectores:2, tipo:'CCS2' },
-    { nombre:'FING Sosa',                    lat:-34.9050, lon:-56.1580, potencia:60, conectores:2, tipo:'CCS2' },
-    { nombre:'Palacio de la Luz DC Mendoza', lat:-34.9070, lon:-56.1883, potencia:60, conectores:4, tipo:'CCS2' },
-    { nombre:'UTE Palacio de la Luz AC',     lat:-34.9072, lon:-56.1882, potencia:22, conectores:4, tipo:'Tipo2' },
-    { nombre:'Terminal Tres Cruces',         lat:-34.8988, lon:-56.1651, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Prado - Av. Millán',           lat:-34.8800, lon:-56.2050, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Rambla Pocitos',               lat:-34.9200, lon:-56.1550, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Shopping Tres Cruces',         lat:-34.8985, lon:-56.1660, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Plaza Independencia',          lat:-34.9064, lon:-56.1930, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Montevideo Shopping',          lat:-34.8917, lon:-56.1533, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'WTC Montevideo',               lat:-34.9145, lon:-56.1614, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Aeropuerto Carrasco',          lat:-34.8384, lon:-56.0308, potencia:40, conectores:2, tipo:'CCS2' },
+    { nombre:'Palacio Legislativo DC',       lat:-34.9058, lon:-56.1875, potencia:60,  tipo:'CCS2'  },
+    { nombre:'Banco Central del Uruguay',    lat:-34.9065, lon:-56.1944, potencia:60,  tipo:'CCS2'  },
+    { nombre:'La Cumparsita DC',             lat:-34.9022, lon:-56.1900, potencia:60,  tipo:'CCS2'  },
+    { nombre:'Plaza Vidiella',               lat:-34.8059, lon:-56.2223, potencia:43,  tipo:'Tipo2' },
+    { nombre:'Hospital BSE Peatonal',        lat:-34.9050, lon:-56.1705, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Parque Hotel Montevideo',      lat:-34.9120, lon:-56.1710, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Ancap Buceo DC',               lat:-34.9050, lon:-56.1350, potencia:60,  tipo:'CCS2'  },
+    { nombre:'Ancap Solanas DC (Ruta Int.)', lat:-34.8310, lon:-55.8170, potencia:60,  tipo:'CCS2'  },
+    { nombre:'Terminal del Cerro',           lat:-34.8910, lon:-56.3120, potencia:22,  tipo:'Tipo2' },
+    { nombre:'IMM Ejido',                    lat:-34.9030, lon:-56.1870, potencia:22,  tipo:'Tipo2' },
+    { nombre:'FING Reissig',                 lat:-34.9098, lon:-56.1670, potencia:60,  tipo:'CCS2'  },
+    { nombre:'FING Sosa',                    lat:-34.9050, lon:-56.1580, potencia:60,  tipo:'CCS2'  },
+    { nombre:'Palacio de la Luz DC Mendoza', lat:-34.9070, lon:-56.1883, potencia:60,  tipo:'CCS2'  },
+    { nombre:'UTE Palacio de la Luz AC',     lat:-34.9072, lon:-56.1882, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Terminal Tres Cruces',         lat:-34.8988, lon:-56.1651, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Prado - Av. Millán',           lat:-34.8800, lon:-56.2050, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Rambla Pocitos',               lat:-34.9200, lon:-56.1550, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Shopping Tres Cruces',         lat:-34.8985, lon:-56.1660, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Plaza Independencia',          lat:-34.9064, lon:-56.1930, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Montevideo Shopping',          lat:-34.8917, lon:-56.1533, potencia:40,  tipo:'CCS2'  },
+    { nombre:'WTC Montevideo',               lat:-34.9145, lon:-56.1614, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Aeropuerto Carrasco',          lat:-34.8384, lon:-56.0308, potencia:40,  tipo:'CCS2'  },
     // ── Canelones / Costa ──
-    { nombre:'Ciudad de la Costa - Portones',lat:-34.8400, lon:-56.0800, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Las Piedras',                  lat:-34.7274, lon:-56.2219, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Pando',                        lat:-34.7200, lon:-55.9700, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Canelones ciudad',             lat:-34.5274, lon:-56.2893, potencia:22, conectores:2, tipo:'Tipo2' },
+    { nombre:'Ciudad de la Costa - Portones',lat:-34.8400, lon:-56.0800, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Las Piedras',                  lat:-34.7274, lon:-56.2219, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Pando',                        lat:-34.7200, lon:-55.9700, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Canelones ciudad',             lat:-34.5274, lon:-56.2893, potencia:22,  tipo:'Tipo2' },
     // ── Maldonado / Punta del Este ──
-    { nombre:'Punta del Este - Av. Roosevelt',lat:-34.9670, lon:-54.9550, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Maldonado ciudad',             lat:-34.9020, lon:-54.9620, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'San Carlos',                   lat:-34.8038, lon:-54.9176, potencia:22, conectores:2, tipo:'Tipo2' },
-    // ── Ruta 1 (Montevideo → Colonia) ──
-    { nombre:'San José de Mayo',             lat:-34.3368, lon:-56.7133, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Colonia del Sacramento',       lat:-34.4622, lon:-57.8397, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Carmelo',                      lat:-33.9887, lon:-58.2946, potencia:22, conectores:2, tipo:'Tipo2' },
-    // ── Ruta 5 (Montevideo → Rivera) ──
-    { nombre:'Florida ciudad',               lat:-34.0978, lon:-56.2154, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Durazno',                      lat:-33.3786, lon:-56.5194, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Tacuarembó',                   lat:-31.7266, lon:-55.9889, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Rivera',                       lat:-30.9053, lon:-55.5503, potencia:40, conectores:2, tipo:'CCS2' },
-    // ── Ruta 9 (Montevideo → Chuy) ──
-    { nombre:'Rocha ciudad',                 lat:-34.4819, lon:-54.3344, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Castillos',                    lat:-34.1978, lon:-53.8569, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Chuy',                         lat:-33.6896, lon:-53.4607, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'La Paloma',                    lat:-34.6544, lon:-54.1561, potencia:22, conectores:2, tipo:'Tipo2' },
-    // ── Ruta 3 (Montevideo → Salto) ──
-    { nombre:'Trinidad',                     lat:-33.5340, lon:-56.8983, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Mercedes',                     lat:-33.2574, lon:-58.0189, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Paysandú',                     lat:-32.3228, lon:-58.0756, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Salto',                        lat:-31.3833, lon:-57.9611, potencia:40, conectores:2, tipo:'CCS2' },
-    // ── Ruta 8 (Montevideo → Treinta y Tres) ──
-    { nombre:'Melo',                         lat:-32.3686, lon:-54.1731, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Treinta y Tres',               lat:-33.2329, lon:-54.3858, potencia:40, conectores:2, tipo:'CCS2' },
-    // ── Otros departamentos ──
-    { nombre:'Artigas',                      lat:-30.4006, lon:-56.4797, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Fray Bentos',                  lat:-33.1247, lon:-58.3048, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Young',                        lat:-32.6853, lon:-57.6358, potencia:22, conectores:2, tipo:'Tipo2' },
-    { nombre:'Minas',                        lat:-34.3786, lon:-55.2372, potencia:40, conectores:2, tipo:'CCS2' },
-    { nombre:'Dolores',                      lat:-33.5369, lon:-58.2167, potencia:22, conectores:2, tipo:'Tipo2' },
+    { nombre:'Punta del Este - Av. Roosevelt',lat:-34.9670, lon:-54.9550, potencia:40, tipo:'CCS2'  },
+    { nombre:'Maldonado ciudad',             lat:-34.9020, lon:-54.9620, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Piriápolis',                   lat:-34.8653, lon:-55.2758, potencia:22,  tipo:'Tipo2' },
+    // ── Colonia / SW ──
+    { nombre:'Colonia del Sacramento',       lat:-34.4626, lon:-57.8407, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Mercedes',                     lat:-33.2553, lon:-58.0214, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Fray Bentos',                  lat:-33.1181, lon:-58.2997, potencia:22,  tipo:'Tipo2' },
+    // ── Litoral Norte ──
+    { nombre:'Paysandú',                     lat:-32.3214, lon:-58.0756, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Salto',                        lat:-31.3833, lon:-57.9614, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Bella Unión',                  lat:-30.2581, lon:-57.5944, potencia:22,  tipo:'Tipo2' },
+    // ── Litoral Este / Centro ──
+    { nombre:'Paso de los Toros',            lat:-32.8130, lon:-56.5140, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Trinidad',                     lat:-33.5350, lon:-56.9000, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Tacuarembó',                   lat:-31.7300, lon:-55.9900, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Rivera',                       lat:-30.9050, lon:-55.5508, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Melo',                         lat:-32.3700, lon:-54.1700, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Treinta y Tres',               lat:-33.2333, lon:-54.3833, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Rocha',                        lat:-34.4817, lon:-54.3369, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Chuy',                         lat:-33.6958, lon:-53.4606, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Artigas',                      lat:-30.4039, lon:-56.4764, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Young',                        lat:-32.6853, lon:-57.6358, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Minas',                        lat:-34.3786, lon:-55.2372, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Dolores',                      lat:-33.5369, lon:-58.2167, potencia:22,  tipo:'Tipo2' },
+    { nombre:'Durazno',                      lat:-33.3833, lon:-56.5167, potencia:40,  tipo:'CCS2'  },
+    { nombre:'Florida',                      lat:-34.0992, lon:-56.2150, potencia:22,  tipo:'Tipo2' },
+    { nombre:'San José de Mayo',             lat:-34.3378, lon:-56.7111, potencia:22,  tipo:'Tipo2' },
 ];
 
+// ══════════════════════════════════════════════════════════
+// API UTE Movilidad Eléctrica — token y cargadores live
+// ══════════════════════════════════════════════════════════
+const UTE_API_BASE    = 'https://movilidadelectrica.ute.com.uy/api/v2';
+const UTE_UNIQUE_KEY  = '8590310810698';
+const UTE_TOKEN_TTL   = 45 * 60 * 1000;  // 45 min en ms
+
+let _uteToken    = null;
+let _uteTokenTs  = 0;
+// Cache de cargadores live (se actualiza con cada petición exitosa)
+let _uteCargadoresLive = null;
+
+async function uteGetToken() {
+    // Reusar token si es reciente
+    if (_uteToken && Date.now() - _uteTokenTs < UTE_TOKEN_TTL) return _uteToken;
+    const resp = await fetch(`${UTE_API_BASE}/token`, {
+        method: 'POST',
+        headers: {
+            'Content-Type':  'application/json; charset=utf-8',
+            'User-Agent':    'Dart/3.4 (dart:io)',
+            'uniquekeyuser': UTE_UNIQUE_KEY,
+        },
+        body: JSON.stringify({ clientIdIDP: 'cargaME', identifier: 'Anonymous' }),
+    });
+    if (!resp.ok) throw new Error(`UTE token error ${resp.status}`);
+    const data = await resp.json();
+    _uteToken   = data.accessToken || data.access_token || data.token || data;
+    _uteTokenTs = Date.now();
+    return _uteToken;
+}
+
+async function uteFetchCargadores() {
+    const token = await uteGetToken();
+    const body = {
+        connectorTypes: [
+            {id:1, internalCode:'', text:'Tipo 2',   selected:true, icon:''},
+            {id:2, internalCode:'', text:'CCS2',     selected:true, icon:''},
+            {id:3, internalCode:'', text:'CHAdeMO',  selected:true, icon:''},
+            {id:4, internalCode:'', text:'GB/T',     selected:true, icon:''},
+        ],
+        connectorStatuses: [
+            {id:1, internalCode:'', text:'Disponible',       selected:true, icon:''},
+            {id:2, internalCode:'', text:'Cargando',         selected:true, icon:''},
+            {id:3, internalCode:'', text:'Sin Comunicacion', selected:true, icon:''},
+        ],
+        connectorPowers:  [{id:1, internalCode:'', text:'0', selected:true, icon:''}],
+        connectorCables:  [
+            {id:1, internalCode:'', text:'Con cable', selected:true, icon:''},
+            {id:2, internalCode:'', text:'Sin cable', selected:true, icon:''},
+        ],
+        connectorNetworks: [
+            {id:1, internalCode:'PUBLIC', text:'Publica', selected:true, icon:''},
+            {id:2, internalCode:'TAXI',   text:'Taxi',    selected:true, icon:''},
+            {id:3, internalCode:'DMC',    text:'DMC',     selected:true, icon:''},
+            {id:4, internalCode:'EVO',    text:'EVO',     selected:true, icon:''},
+            {id:5, internalCode:'ONE',    text:'eOne',    selected:true, icon:''},
+        ],
+    };
+    const resp = await fetch(`${UTE_API_BASE}/station/statusFiltered`, {
+        method: 'POST',
+        headers: {
+            'Content-Type':  'application/json; charset=utf-8',
+            'User-Agent':    'Dart/3.4 (dart:io)',
+            'uniquekeyuser': UTE_UNIQUE_KEY,
+            'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`UTE station error ${resp.status}`);
+    return resp.json();
+}
+
+// Convierte un ítem de la API UTE al formato interno de la app
+function uteApiItemToInterno(st) {
+    // Determinar potencia máxima del ítem
+    let potencia = 0;
+    const connectors = st.connectors || st.Connectors || [];
+    connectors.forEach(cn => {
+        const p = parseFloat(cn.power || cn.Power || cn.powerKw || 0);
+        if (p > potencia) potencia = p;
+    });
+    if (!potencia) potencia = parseFloat(st.power || st.Power || st.maxPower || 22);
+
+    // Estado del primer conector con estado conocido
+    const statusTxt = (st.status || st.Status || connectors[0]?.status || '').toLowerCase();
+    let statusLabel = '❓';
+    let statusId    = 0;
+    if (statusTxt.includes('disponible') || statusTxt.includes('available')) { statusLabel = '✅'; statusId = 50; }
+    else if (statusTxt.includes('cargando') || statusTxt.includes('charging'))  { statusLabel = '🔌'; statusId = 10; }
+    else if (statusTxt.includes('sin comunicacion') || statusTxt.includes('offline')) { statusLabel = '⚠️'; statusId = 75; }
+
+    // Tipo de conector dominante
+    const tipoTxt = (connectors[0]?.type || connectors[0]?.Type || st.connectorType || '').toLowerCase();
+    let tipo = 'Tipo2';
+    if (tipoTxt.includes('ccs') || tipoTxt.includes('combo'))     tipo = 'CCS2';
+    else if (tipoTxt.includes('chademo'))                          tipo = 'CHAdeMO';
+    else if (tipoTxt.includes('gbt') || tipoTxt.includes('gb/t')) tipo = 'GB/T';
+
+    const lat = parseFloat(st.latitude  || st.Latitude  || st.lat || 0);
+    const lon = parseFloat(st.longitude || st.Longitude || st.lon || 0);
+
+    return {
+        id:          'ute_live_' + (st.id || st.Id || st.stationId || Math.random()),
+        fuente:      'UTE',
+        nombre:      (st.name || st.Name || st.stationName || 'Cargador UTE') + ' (UTE)',
+        lat, lon, potencia,
+        tipo,
+        statusLabel,
+        statusId,
+        conectores:  connectors.length || 1,
+        red:         st.network || st.Network || 'PUBLIC',
+        esUTE:       true,
+    };
+}
+
+// Función principal: obtener cargadores UTE (live o fallback)
+async function uteObtenerCargadores() {
+    try {
+        const data = await uteFetchCargadores();
+        const lista = Array.isArray(data) ? data : (data.stations || data.data || data.items || []);
+        const cargadores = lista
+            .map(uteApiItemToInterno)
+            .filter(c => isFinite(c.lat) && isFinite(c.lon) && c.lat !== 0 && c.lon !== 0);
+
+        if (cargadores.length > 0) {
+            _uteCargadoresLive = cargadores;
+            // Guardar en localStorage como caché offline (comprimido: solo lo esencial)
+            try {
+                const cache = cargadores.map(c => ({
+                    n: c.nombre, la: c.lat, lo: c.lon, p: c.potencia, t: c.tipo
+                }));
+                localStorage.setItem('ute-cache', JSON.stringify({ ts: Date.now(), v: cache }));
+            } catch(e) { /* storage lleno */ }
+            return { cargadores, offline: false };
+        }
+        throw new Error('Lista vacía');
+    } catch(err) {
+        console.warn('UTE API no disponible, usando caché/fallback:', err.message);
+        return uteObtenerFallback();
+    }
+}
+
+// Fallback: caché localStorage → estáticos hardcodeados
+function uteObtenerFallback() {
+    // 1. Intentar caché guardado en localStorage
+    try {
+        const raw = localStorage.getItem('ute-cache');
+        if (raw) {
+            const { ts, v } = JSON.parse(raw);
+            const edadHoras = (Date.now() - ts) / 3600000;
+            if (v?.length > 0) {
+                const cargadores = v.map((c, i) => ({
+                    id: 'ute_cache_' + i, fuente: 'UTE',
+                    nombre: c.n, lat: c.la, lon: c.lo,
+                    potencia: c.p, tipo: c.t,
+                    statusLabel: '❓ Sin conexión', statusId: 0,
+                    conectores: 1, esUTE: true,
+                }));
+                return { cargadores, offline: true, edadHoras: Math.round(edadHoras) };
+            }
+        }
+    } catch(e) {}
+
+    // 2. Último recurso: datos estáticos hardcodeados
+    const cargadores = CARGADORES_UTE_ESTATICOS.map((c, i) => ({
+        id: 'ute_static_' + i, fuente: 'UTE',
+        nombre: c.nombre + ' (UTE)',
+        lat: c.lat, lon: c.lon,
+        potencia: c.potencia, tipo: c.tipo,
+        statusLabel: '❓ Sin estado en tiempo real', statusId: 0,
+        conectores: 2, esUTE: true,
+    }));
+    return { cargadores, offline: true, edadHoras: null };
+}
+
 function getEstaticosCercanos(routeCoords, distKm) {
-    return CARGADORES_UTE_ESTATICOS
+    // Usa los live si están disponibles, sino los estáticos
+    const fuente = _uteCargadoresLive || CARGADORES_UTE_ESTATICOS.map((c,i) => ({
+        id:'ute_s_'+i, fuente:'UTE', nombre:c.nombre+' (UTE)',
+        lat:c.lat, lon:c.lon, potencia:c.potencia, tipo:c.tipo,
+        statusLabel:'❓', statusId:0, conectores:2, esUTE:true,
+    }));
+    return fuente
         .filter(c => {
             const bounds = _routeBounds(routeCoords);
             if (c.lat < bounds.minLat - 0.1 || c.lat > bounds.maxLat + 0.1 ||
                 c.lon < bounds.minLon - 0.1 || c.lon > bounds.maxLon + 0.1) return false;
             return distanciaMinRutaFast(c.lat, c.lon, routeCoords, 8) <= 8;
         })
-        .map((c, i) => ({
-            id:          'ute_static_' + i,
-            fuente:      'UTE',
-            nombre:      c.nombre + ' (UTE)',
-            lat:         c.lat,
-            lon:         c.lon,
-            potencia:    c.potencia,
-            distRuta:    distanciaMinRutaFast(c.lat, c.lon, routeCoords, 8),
-            statusLabel: '❓ Sin estado en tiempo real',
-            statusId:    0,
-            kmPos:       kmEnRuta(c.lat, c.lon, routeCoords, distKm),
-            esUTE:       true,
-            conectores:  c.conectores,
-            tipo:        c.tipo,
+        .map(c => ({
+            ...c,
+            distRuta: distanciaMinRutaFast(c.lat, c.lon, routeCoords, 8),
+            kmPos:    kmEnRuta(c.lat, c.lon, routeCoords, distKm),
         }));
 }
+
+
 
 async function getCargadores(routeCoords, distKm, apiKey) {
     const numPuntos = Math.max(2, Math.ceil(distKm / 50));
@@ -3372,7 +3537,7 @@ async function getCargadores(routeCoords, distKm, apiKey) {
         });
     } catch(e) { /* Overpass fallo, continuar solo con OCM */ }
 
-    // ── Fuente 3: Base de datos estática UTE ──
+    // ── Fuente 3: Cargadores UTE (live si disponible, fallback estático) ──
     const estaticos = getEstaticosCercanos(routeCoords, distKm);
     estaticos.forEach(c => {
         // Deduplicar contra OCM+OSM ya encontrados
@@ -5450,52 +5615,7 @@ function reportarOcupacion(chargePointId, status, btn) {
     mostrarToast(status === 'ocupado' ? '🔴 Reportado como ocupado' : '🟢 Reportado como libre', 2500);
 }
 
-// =====================================================
-// ===== INTEGRACIÓN API UTE MUEVE (cuando esté disponible) =====
-// =====================================================
-// Reemplazar UTE_API_BASE con el endpoint real cuando se encuentre
-// Soporta: REST JSON, OCPI 2.2, o GraphQL según lo que devuelva la app
-
-const UTE_API_BASE = null; // ← pegar aquí: 'https://api.utemueve.uy/v1' cuando lo encuentres
-const UTE_API_TOKEN = null; // ← Bearer token si lo requiere
-
-// Cache local con TTL de 60 segundos
-const _uteCache = new Map(); // stationId → {status, connectors, timestamp}
-const UTE_CACHE_TTL = 60000;
-
-async function fetchEstadoUTE(stationId) {
-    if (!UTE_API_BASE) return null;
-
-    // Cache hit
-    const cached = _uteCache.get(stationId);
-    if (cached && Date.now() - cached.timestamp < UTE_CACHE_TTL) return cached;
-
-    try {
-        const headers = { 'Accept': 'application/json', 'User-Agent': 'EV-Calc-PRO/1.0' };
-        if (UTE_API_TOKEN) headers['Authorization'] = `Bearer ${UTE_API_TOKEN}`;
-
-        // Intentar REST primero, luego OCPI
-        const endpoints = [
-            `${UTE_API_BASE}/stations/${stationId}`,
-            `${UTE_API_BASE}/chargers/${stationId}`,
-            `${UTE_API_BASE}/ocpi/cpo/2.2/locations/${stationId}`,
-        ];
-
-        for (const url of endpoints) {
-            const r = await fetch(url, { headers });
-            if (!r.ok) continue;
-            const data = JSON.parse(await r.text());
-
-            // Normalizar respuesta (REST o OCPI)
-            const normalizado = normalizarRespuestaUTE(data, stationId);
-            if (normalizado) {
-                _uteCache.set(stationId, { ...normalizado, timestamp: Date.now() });
-                return normalizado;
-            }
-        }
-    } catch(e) { /* API no disponible */ }
-    return null;
-}
+// (Integración UTE — ver uteGetToken / uteFetchCargadores)
 
 function normalizarRespuestaUTE(data, stationId) {
     // OCPI 2.2 format
