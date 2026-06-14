@@ -3262,15 +3262,18 @@ let _uteTokenTs  = 0;
 let _uteCargadoresLive = null;
 
 async function uteGetToken() {
-    // Reusar token si es reciente
     if (_uteToken && Date.now() - _uteTokenTs < UTE_TOKEN_TTL) return _uteToken;
 
-    // Llamar a través del proxy Netlify (evita CORS del browser)
-    const resp = await fetch('/.netlify/functions/ute-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-    });
+    const usarDirecto = localStorage.getItem('ute-modo-directo') === '1';
+    const url = usarDirecto
+        ? 'https://movilidadelectrica.ute.com.uy/api/v2/token'
+        : '/.netlify/functions/ute-token';
+
+    const opts = usarDirecto
+        ? { method:'POST', headers:{'Content-Type':'application/json','uniquekeyuser':'8590310810698'}, body: JSON.stringify({ clientIdIDP:'cargaME', identifier:'Anonymous' }) }
+        : { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' };
+
+    const resp = await fetch(url, opts);
     if (!resp.ok) {
         const txt = await resp.text().catch(() => '');
         throw new Error(`UTE token HTTP ${resp.status}: ${txt.slice(0,200)}`);
@@ -3310,12 +3313,21 @@ async function uteFetchCargadores() {
             {id:5, internalCode:'ONE',    text:'eOne',    selected:true, icon:''},
         ],
     };
-    // Enviar token + body al proxy Netlify (que hace el request a UTE con CORS correcto)
-    const resp = await fetch('/.netlify/functions/ute-stations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, filterBody: body }),
-    });
+    const usarDirecto = localStorage.getItem('ute-modo-directo') === '1';
+    let resp;
+    if (usarDirecto) {
+        resp = await fetch('https://movilidadelectrica.ute.com.uy/api/v2/station/statusFiltered', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json; charset=utf-8', 'User-Agent':'Dart/3.4 (dart:io)', 'uniquekeyuser':'8590310810698', 'Authorization':`Bearer ${token}` },
+            body: JSON.stringify(body),
+        });
+    } else {
+        resp = await fetch('/.netlify/functions/ute-stations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, filterBody: body }),
+        });
+    }
     if (!resp.ok) {
         const txt = await resp.text().catch(() => '');
         throw new Error(`UTE stations HTTP ${resp.status}: ${txt.slice(0,200)}`);
@@ -5641,78 +5653,78 @@ function reportarOcupacion(chargePointId, status, btn) {
 async function diagnosticoUTE() {
     const el = document.getElementById('ute-diag-result');
     if (!el) return;
+    el.innerHTML = '';
     const log = (msg, color) => {
         el.innerHTML += `<span style="color:${color||'var(--text)'}">${msg}</span>\n`;
+        el.scrollTop = el.scrollHeight;
     };
-    el.innerHTML = '';
     log('Iniciando diagnóstico...', '#60a5fa');
 
-    // Paso 1: verificar que el endpoint de la Function existe
-    log('\n── Paso 1: Verificar Function Netlify ──', '#fbbf24');
+    // ── Paso 0: llamada DIRECTA al API de UTE desde el browser ──
+    log('\n── Paso 0: Llamada DIRECTA a UTE (sin proxy) ──', '#fbbf24');
     try {
-        const probe = await fetch('/.netlify/functions/ute-token', {
+        const r0 = await fetch('https://movilidadelectrica.ute.com.uy/api/v2/token', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: '{}',
+            headers: { 'Content-Type': 'application/json', 'uniquekeyuser': '8590310810698' },
+            body: JSON.stringify({ clientIdIDP: 'cargaME', identifier: 'Anonymous' }),
         });
-        log(`HTTP ${probe.status} ${probe.statusText}`, probe.ok ? '#34d399' : '#f87171');
-        const body = await probe.text();
-        log(`Respuesta: ${body.slice(0,300)}`, '#9ca3af');
-
-        if (!probe.ok) {
-            if (probe.status === 404) {
-                log('\n⚠ La Function NO existe en Netlify.', '#f87171');
-                log('→ Verificá que el ZIP se deployó con la carpeta netlify/functions/', '#fbbf24');
-                log('→ En Netlify: Site settings → Functions → Functions directory', '#fbbf24');
-            }
-            return;
-        }
-
-        // Paso 2: extraer token
-        log('\n── Paso 2: Parsear token ──', '#fbbf24');
-        let tokenData;
-        try { tokenData = JSON.parse(body); } catch(e) { log('Error parseando JSON: ' + e.message, '#f87171'); return; }
-        const token = tokenData.accessToken || tokenData.access_token || tokenData.token
-                   || (typeof tokenData === 'string' ? tokenData : null);
-        if (!token) {
-            log('Token NO encontrado en respuesta', '#f87171');
-            log('Campos recibidos: ' + Object.keys(tokenData).join(', '), '#9ca3af');
-            return;
-        }
-        log('✅ Token obtenido: ' + token.slice(0,40) + '...', '#34d399');
-
-        // Paso 3: obtener cargadores
-        log('\n── Paso 3: Obtener cargadores ──', '#fbbf24');
-        const filterBody = {
-            connectorTypes: [{id:1,internalCode:'',text:'Tipo 2',selected:true,icon:''},{id:2,internalCode:'',text:'CCS2',selected:true,icon:''}],
-            connectorStatuses: [{id:1,internalCode:'',text:'Disponible',selected:true,icon:''}],
-            connectorPowers: [{id:1,internalCode:'',text:'0',selected:true,icon:''}],
-            connectorCables: [{id:1,internalCode:'',text:'Con cable',selected:true,icon:''},{id:2,internalCode:'',text:'Sin cable',selected:true,icon:''}],
-            connectorNetworks: [{id:1,internalCode:'PUBLIC',text:'Publica',selected:true,icon:''}],
-        };
-        const stResp = await fetch('/.netlify/functions/ute-stations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token, filterBody }),
-        });
-        log(`HTTP ${stResp.status} ${stResp.statusText}`, stResp.ok ? '#34d399' : '#f87171');
-        const stBody = await stResp.text();
-        log(`Respuesta (primeros 400): ${stBody.slice(0,400)}`, '#9ca3af');
-
-        if (stResp.ok) {
-            const stData = JSON.parse(stBody);
-            const count = Array.isArray(stData) ? stData.length : (stData.stations?.length || stData.data?.length || '?');
-            log(`\n✅ ¡ÉXITO! ${count} cargadores recibidos`, '#34d399');
-            if (Array.isArray(stData) && stData[0]) {
-                log('\nPrimer cargador: ' + JSON.stringify(stData[0]).slice(0,300), '#60a5fa');
+        log(`HTTP ${r0.status} ${r0.statusText}`, r0.ok ? '#34d399' : '#f87171');
+        const b0 = await r0.text();
+        log(`Respuesta: ${b0.slice(0,300)}`, '#9ca3af');
+        if (r0.ok) {
+            const d0 = JSON.parse(b0);
+            const tokenDirecto = d0.accessToken || d0.access_token || d0.token
+                || (typeof d0 === 'string' ? d0 : null);
+            if (tokenDirecto) {
+                log('✅ CORS OK! Llamada directa funciona.', '#34d399');
+                log(`Token: ${tokenDirecto.slice(0,40)}...`, '#34d399');
+                localStorage.setItem('ute-modo-directo', '1');
+                log('→ Modo directo activado.', '#34d399');
+                // probar cargadores también directo
+                try {
+                    const r1 = await fetch('https://movilidadelectrica.ute.com.uy/api/v2/station/statusFiltered', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'uniquekeyuser': '8590310810698', 'Authorization': `Bearer ${tokenDirecto}` },
+                        body: JSON.stringify({ connectorTypes:[{id:1,internalCode:'',text:'Tipo 2',selected:true,icon:''},{id:2,internalCode:'',text:'CCS2',selected:true,icon:''}], connectorStatuses:[{id:1,internalCode:'',text:'Disponible',selected:true,icon:''}], connectorPowers:[{id:1,internalCode:'',text:'0',selected:true,icon:''}], connectorCables:[{id:1,internalCode:'',text:'Con cable',selected:true,icon:''},{id:2,internalCode:'',text:'Sin cable',selected:true,icon:''}], connectorNetworks:[{id:1,internalCode:'PUBLIC',text:'Publica',selected:true,icon:''}] }),
+                    });
+                    const b1 = await r1.text();
+                    log(`Cargadores HTTP ${r1.status}: ${b1.slice(0,400)}`, r1.ok ? '#34d399' : '#f87171');
+                    if (r1.ok) {
+                        const arr = JSON.parse(b1);
+                        log(`✅ ${Array.isArray(arr)?arr.length:'?'} cargadores. ¡TODO FUNCIONA!`, '#34d399');
+                        log('Recargá la app para ver los datos en tiempo real.', '#60a5fa');
+                    }
+                } catch(e) { log('Error cargadores: ' + e.message, '#f87171'); }
+                return;
+            } else {
+                log('Campos recibidos: ' + Object.keys(d0).join(', '), '#9ca3af');
             }
         }
-    } catch(err) {
-        log('\n❌ Error de red: ' + err.message, '#f87171');
-        log('(Puede ser que la Function no exista o CORS)', '#fbbf24');
+    } catch(e0) {
+        log(`Error directo: ${e0.message}`, '#f87171');
+        if (e0.message.includes('CORS') || e0.message.includes('Failed to fetch') || e0.message.includes('NetworkError')) {
+            log('→ CORS bloqueado. La API no permite llamadas directas del browser.', '#fbbf24');
+        }
+    }
+
+    // ── Paso 1: probar el proxy Netlify ──
+    log('\n── Paso 1: Proxy Netlify (.netlify/functions/ute-token) ──', '#fbbf24');
+    try {
+        const r2 = await fetch('/.netlify/functions/ute-token', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        log(`HTTP ${r2.status} ${r2.statusText}`, r2.ok ? '#34d399' : '#f87171');
+        const b2 = await r2.text();
+        log(`Respuesta: ${b2.slice(0,200)}`, '#9ca3af');
+        if (r2.status === 405) {
+            log('\n⚠ 405 = Deploy drag-and-drop no soporta Functions.', '#f87171');
+            log('Para usar el proxy, necesitás deploy via Git:', '#fbbf24');
+            log('1. Subí el código a GitHub', '#fbbf24');
+            log('2. En Netlify → New site → Import from GitHub', '#fbbf24');
+            log('3. Publish dir: ev-pwa-v2  Functions dir: ev-pwa-v2/netlify/functions', '#fbbf24');
+        }
+    } catch(e2) {
+        log(`Error proxy: ${e2.message}`, '#f87171');
     }
 }
-
 
 
 function normalizarRespuestaUTE(data, stationId) {
