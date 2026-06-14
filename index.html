@@ -3400,22 +3400,25 @@ function _routeBounds(coords) {
 // Zona 0 = primer tramo (0→parada1), zona 1 = segundo tramo, etc.
 function calcularZonasDesdeTramos(estaciones, tramos) {
     const zonas = {};
-    // Solo contar como zonas válidas los tramos con parada de carga (no el tramo final al destino)
+    // Solo los tramos con parada de carga (no el tramo final al destino)
     const tramosConParada = tramos.filter(t => !t.esFinal);
 
     estaciones.forEach(st => {
         let zona = -1;
         let kmPrev = 0;
-        // Asignar zona solo si el charger cae ANTES de la última parada de carga
-        // (no en el tramo entre última parada y destino)
         for (let i = 0; i < tramosConParada.length; i++) {
-            if (st.kmPos > kmPrev && st.kmPos <= tramosConParada[i].kmAcum) {
+            const kmStop = tramosConParada[i].kmAcum;
+            const zoneLen = kmStop - kmPrev;
+            // Solo mostrar cargadores en la VENTANA RELEVANTE cerca del stop:
+            // últimos 50km del tramo o el 40% final, lo que sea mayor.
+            // Esto filtra cargadores cerca del origen que no son relevantes.
+            const ventanaMin = kmStop - Math.max(50, zoneLen * 0.40);
+            if (st.kmPos > ventanaMin && st.kmPos <= kmStop) {
                 zona = i;
                 break;
             }
-            kmPrev = tramosConParada[i].kmAcum;
+            kmPrev = kmStop;
         }
-        // Los cargadores después de la última parada (tramo final → destino) quedan en zona -1 → no se muestran
         zonas[st.id] = zona;
     });
     return zonas;
@@ -3791,8 +3794,9 @@ function refreshChipColors(tramos) {
                 <button class="sort-btn ${_currentSort==='potencia'?'active':''}" id="sort-potencia"  onclick="setSort('potencia')">⚡ Potencia</button>
             </div>
             <div id="chips-container" style="display:flex;flex-wrap:wrap;margin-bottom:12px">${chipsInner}</div>`;
-        setTimeout(() => renderMap(), 100);
     }
+    // Siempre redibujar el mapa con los tramos definitivos
+    setTimeout(() => renderMap(), 120);
 }
 
 // ── Shared constants ──
@@ -6242,6 +6246,24 @@ function distKmDeRuta(coords) {
     return total;
 }
 
+// Interpola la posición geográfica en un km dado de la ruta
+function coordAtKm(coords, targetKm) {
+    if (!coords?.length) return null;
+    let acum = 0;
+    for (let i = 1; i < coords.length; i++) {
+        const d = haversine(coords[i-1][0], coords[i-1][1], coords[i][0], coords[i][1]);
+        if (acum + d >= targetKm) {
+            const f = d > 0 ? (targetKm - acum) / d : 0;
+            return [
+                coords[i-1][0] + f * (coords[i][0] - coords[i-1][0]),
+                coords[i-1][1] + f * (coords[i][1] - coords[i-1][1])
+            ];
+        }
+        acum += d;
+    }
+    return coords[coords.length - 1];
+}
+
 // Pinta la polyline de la ruta en segmentos, cada uno con el color de la
 // parada de carga a la que pertenece (en vez de círculos de "zona").
 //
@@ -6289,15 +6311,22 @@ function pintarTramosRuta(coords, tramos, distTotalKm, estaciones, zonas) {
                 }).addTo(_leafletMap);
                 _zonaCirculos.push(polyDim);
             }
-            // Círculo en la posición del cargador de esta parada (radio fijo en
-            // píxeles → se ve igual sin importar el zoom del mapa)
-            if (!t.esFinal && isFinite(t.lat) && isFinite(t.lon)) {
-                const circ = L.circleMarker([t.lat, t.lon], {
-                    radius: 26, color, weight: 2,
-                    fillColor: color, fillOpacity: 0.25, opacity: 0.85,
-                    interactive: false
-                }).addTo(_leafletMap);
-                _zonaCirculos.push(circ);
+            // Círculo en la posición del cargador (lat/lon real o fallback por kmPos)
+            if (!t.esFinal) {
+                let circLat = t.lat, circLon = t.lon;
+                if (!isFinite(circLat) || !isFinite(circLon)) {
+                    // Si el cargador no tiene coordenadas, interpolar desde la ruta
+                    const fb = coordAtKm(coords, kmFin);
+                    if (fb) { circLat = fb[0]; circLon = fb[1]; }
+                }
+                if (isFinite(circLat) && isFinite(circLon)) {
+                    const circ = L.circleMarker([circLat, circLon], {
+                        radius: 26, color, weight: 2,
+                        fillColor: color, fillOpacity: 0.25, opacity: 0.85,
+                        interactive: false
+                    }).addTo(_leafletMap);
+                    _zonaCirculos.push(circ);
+                }
             }
         } catch(e) { console.error('pintarTramosRuta:', e); }
         kmPrev = kmFin;
