@@ -2,11 +2,12 @@
   publish = "."
   functions = "netlify/functions"
 
+[functions]
+  node_bundler = "zisi"
+
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
     Cache-Control = "public, max-age=3600"
 
 [[headers]]

@@ -2738,6 +2738,8 @@ async function buscarCargadoresCercanos() {
                 ? `📶 Sin conexión — mostrando datos de hace ${edadHoras}h`
                 : '📶 Sin conexión — datos de referencia (sin estado real)';
             mostrarToast(msg, 5000);
+        } else {
+            mostrarToast(`✅ ${cargadores.length} cargadores UTE en tiempo real`, 3000);
         }
         // Mostrar cargadores UTE en city-map
         if (_cityMap && cargadores.length) agregarMarcadoresCiudad(cargadores);
@@ -3370,9 +3372,9 @@ async function uteObtenerCargadores() {
         }
         throw new Error('Lista vacía');
     } catch(err) {
-        console.error('[UTE API] Error:', err.message);
-        // Mostrar el error real en pantalla para diagnóstico
-        mostrarToast(`⚠ UTE API: ${err.message.slice(0,80)}`, 8000);
+        console.error('[UTE API] Error completo:', err);
+        // Diagnóstico: mostrar el error real durante 10 segundos
+        mostrarToast(`⚠ UTE API error: ${err.message.slice(0,120)}`, 10000);
         return uteObtenerFallback();
     }
 }
