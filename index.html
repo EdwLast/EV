@@ -498,14 +498,14 @@
     padding: 12px 14px;
     margin-bottom: 12px;
     font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    line-height: 2;
+    font-size: 14px;
+    line-height: 2.1;
   }
   .trip-summary .s-title {
     font-family: 'Nunito Sans', sans-serif;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 1.5px;
+    letter-spacing: 1.2px;
     text-transform: uppercase;
     color: var(--accent);
     margin-bottom: 6px;
@@ -517,22 +517,23 @@
     padding: 12px 14px;
     margin-bottom: 8px;
     font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    line-height: 1.9;
+    font-size: 14px;
+    line-height: 2;
   }
   .stop-card-title {
     font-family: 'Nunito Sans', sans-serif;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 700;
     color: var(--text);
     margin-bottom: 6px;
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
   }
   .stop-badge {
-    font-size: 10px;
-    padding: 2px 7px;
+    font-size: 12px;
+    padding: 3px 9px;
     border-radius: 20px;
     font-weight: 700;
     letter-spacing: 0.5px;
@@ -4640,13 +4641,18 @@ function planificarViajeRuta() {
         return;
     }
 
+    // Actualizar tramosIniciales CON lat/lon ANTES de que refreshChipColors
+    // llame a renderMap (para que pintarTramosRuta tenga los datos correctos)
+    if (window._rutaData) {
+        window._rutaData.tramosIniciales = tramos;
+        // Recalcular zonas con los tramos definitivos (oculta cargadores que no participan)
+        window._rutaData.zonas = calcularZonasDesdeTramos(estaciones, tramos);
+    }
+
     // Actualizar colores de chips con los tramos reales
     refreshChipColors(tramos);
 
     renderViaje(tramos);
-
-    // Sobreescribir tramosIniciales con los que tienen lat/lon para pintarTramosRuta
-    if (window._rutaData) window._rutaData.tramosIniciales = tramos;
 
     // Mostrar botones Guardar + Iniciar Navegación
     const accionesEl = document.getElementById('viaje-acciones');
