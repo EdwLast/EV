@@ -1918,10 +1918,21 @@
       <div class="section-title">Diagnóstico API UTE</div>
     </div>
     <div class="section-body collapsed">
+      <div class="field-group" style="margin-bottom:8px">
+        <label class="field-label">URL del Worker proxy (opcional)</label>
+        <input type="text" id="ute-worker-url"
+               placeholder="https://mi-worker.miusuario.workers.dev"
+               style="font-size:12px"
+               value=""
+               oninput="guardarWorkerUrl(this.value)">
+        <div style="font-size:10px;color:var(--text-muted);margin-top:4px">
+          Si tenés un Cloudflare Worker, pegá la URL aquí
+        </div>
+      </div>
       <button class="btn" onclick="diagnosticoUTE()" style="width:100%;margin-bottom:8px">
         🔍 Probar conexión UTE
       </button>
-      <div id="ute-diag-result" style="font-family:'DM Mono',monospace;font-size:11px;line-height:1.8;color:var(--text-muted);white-space:pre-wrap;word-break:break-all"></div>
+      <div id="ute-diag-result" style="font-family:'DM Mono',monospace;font-size:11px;line-height:1.8;color:var(--text-muted);white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto"></div>
     </div>
   </div>
 </div>
@@ -3261,26 +3272,55 @@ let _uteTokenTs  = 0;
 // Cache de cargadores live (se actualiza con cada petición exitosa)
 let _uteCargadoresLive = null;
 
+function guardarWorkerUrl(url) {
+    const clean = url.trim().replace(/\/$/, '');
+    if (clean) localStorage.setItem('ute-worker-url', clean);
+    else localStorage.removeItem('ute-worker-url');
+}
+
+function getProxyBase() {
+    // Prioridad: localhost (Android Service) > Worker Cloudflare > modo directo > Netlify
+    const worker = localStorage.getItem('ute-worker-url');
+    if (worker) return { base: worker, tipo: 'worker' };
+    if (localStorage.getItem('ute-modo-directo') === '1') return { base: 'https://movilidadelectrica.ute.com.uy/api/v2', tipo: 'directo' };
+    if (localStorage.getItem('ute-modo-localhost') === '1') return { base: 'http://localhost:8765', tipo: 'localhost' };
+    return { base: '/.netlify/functions', tipo: 'netlify' };
+}
+
+// Al iniciar, auto-detectar si el Service Android está corriendo
+async function autoDetectarProxy() {
+    // Intentar localhost primero (Service Android)
+    try {
+        const r = await fetch('http://localhost:8765/ping', { method: 'GET' });
+        if (r.ok) {
+            localStorage.setItem('ute-modo-localhost', '1');
+            console.log('[UTE] Service Android detectado en localhost:8765');
+            return;
+        }
+    } catch(e) { /* no hay service local */ }
+    // Si ya hay worker configurado, usarlo
+    if (localStorage.getItem('ute-worker-url')) return;
+    // Si modo directo funcionó antes, intentarlo (se activa por el diagnóstico)
+}
+
 async function uteGetToken() {
     if (_uteToken && Date.now() - _uteTokenTs < UTE_TOKEN_TTL) return _uteToken;
 
-    const usarDirecto = localStorage.getItem('ute-modo-directo') === '1';
-    const url = usarDirecto
-        ? 'https://movilidadelectrica.ute.com.uy/api/v2/token'
-        : '/.netlify/functions/ute-token';
-
-    const opts = usarDirecto
-        ? { method:'POST', headers:{'Content-Type':'application/json','uniquekeyuser':'8590310810698'}, body: JSON.stringify({ clientIdIDP:'cargaME', identifier:'Anonymous' }) }
-        : { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' };
-
-    const resp = await fetch(url, opts);
-    if (!resp.ok) {
-        const txt = await resp.text().catch(() => '');
-        throw new Error(`UTE token HTTP ${resp.status}: ${txt.slice(0,200)}`);
+    const { base, tipo } = getProxyBase();
+    let resp;
+    if (tipo === 'directo') {
+        resp = await fetch(`${base}/token`, {
+            method:'POST', headers:{'Content-Type':'application/json','uniquekeyuser':'8590310810698'},
+            body: JSON.stringify({ clientIdIDP:'cargaME', identifier:'Anonymous' }),
+        });
+    } else if (tipo === 'worker' || tipo === 'localhost') {
+        resp = await fetch(`${base}/token`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    } else {
+        resp = await fetch(`${base}/ute-token`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
     }
+    if (!resp.ok) { const t=await resp.text().catch(()=>''); throw new Error(`UTE token HTTP ${resp.status}: ${t.slice(0,200)}`); }
     const data = await resp.json();
-    _uteToken = data.accessToken || data.access_token || data.token
-              || (typeof data === 'string' ? data : null);
+    _uteToken = data.accessToken || data.access_token || data.token || (typeof data==='string'?data:null);
     if (!_uteToken) throw new Error(`UTE token: campo no encontrado en ${JSON.stringify(data).slice(0,200)}`);
     _uteTokenTs = Date.now();
     return _uteToken;
@@ -3313,25 +3353,25 @@ async function uteFetchCargadores() {
             {id:5, internalCode:'ONE',    text:'eOne',    selected:true, icon:''},
         ],
     };
-    const usarDirecto = localStorage.getItem('ute-modo-directo') === '1';
+    const { base, tipo } = getProxyBase();
     let resp;
-    if (usarDirecto) {
-        resp = await fetch('https://movilidadelectrica.ute.com.uy/api/v2/station/statusFiltered', {
-            method: 'POST',
-            headers: { 'Content-Type':'application/json; charset=utf-8', 'User-Agent':'Dart/3.4 (dart:io)', 'uniquekeyuser':'8590310810698', 'Authorization':`Bearer ${token}` },
+    if (tipo === 'directo') {
+        resp = await fetch(`${base}/station/statusFiltered`, {
+            method:'POST', headers:{'Content-Type':'application/json; charset=utf-8','User-Agent':'Dart/3.4 (dart:io)','uniquekeyuser':'8590310810698','Authorization':`Bearer ${token}`},
             body: JSON.stringify(body),
         });
+    } else if (tipo === 'worker' || tipo === 'localhost') {
+        resp = await fetch(`${base}/stations`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ token, filterBody: body }),
+        });
     } else {
-        resp = await fetch('/.netlify/functions/ute-stations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+        resp = await fetch(`${base}/ute-stations`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ token, filterBody: body }),
         });
     }
-    if (!resp.ok) {
-        const txt = await resp.text().catch(() => '');
-        throw new Error(`UTE stations HTTP ${resp.status}: ${txt.slice(0,200)}`);
-    }
+    if (!resp.ok) { const t=await resp.text().catch(()=>''); throw new Error(`UTE stations HTTP ${resp.status}: ${t.slice(0,200)}`); }
     return resp.json();
 }
 
@@ -3380,6 +3420,7 @@ function uteApiItemToInterno(st) {
 
 // Función principal: obtener cargadores UTE (live o fallback)
 async function uteObtenerCargadores() {
+    await autoDetectarProxy().catch(() => {});
     try {
         const data = await uteFetchCargadores();
         const lista = Array.isArray(data) ? data : (data.stations || data.data || data.items || []);
@@ -5653,6 +5694,11 @@ function reportarOcupacion(chargePointId, status, btn) {
 async function diagnosticoUTE() {
     const el = document.getElementById('ute-diag-result');
     if (!el) return;
+    // Cargar URL guardada
+    const savedUrl = localStorage.getItem('ute-worker-url') || '';
+    const workerInput = document.getElementById('ute-worker-url');
+    if (workerInput && savedUrl) workerInput.value = savedUrl;
+
     el.innerHTML = '';
     const log = (msg, color) => {
         el.innerHTML += `<span style="color:${color||'var(--text)'}">${msg}</span>\n`;
@@ -5705,6 +5751,24 @@ async function diagnosticoUTE() {
         if (e0.message.includes('CORS') || e0.message.includes('Failed to fetch') || e0.message.includes('NetworkError')) {
             log('→ CORS bloqueado. La API no permite llamadas directas del browser.', '#fbbf24');
         }
+    }
+
+    // ── Paso 0c: probar el Worker Cloudflare si está configurado ──
+    const workerUrl = localStorage.getItem('ute-worker-url');
+    if (workerUrl) {
+        log(`\n── Paso 0c: Probar Worker: ${workerUrl} ──`, '#fbbf24');
+        try {
+            const rw = await fetch(`${workerUrl}/token`, { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+            log(`HTTP ${rw.status} ${rw.statusText}`, rw.ok ? '#34d399' : '#f87171');
+            const bw = await rw.text();
+            log(`Respuesta: ${bw.slice(0,300)}`, '#9ca3af');
+            if (rw.ok) {
+                const dw = JSON.parse(bw);
+                const tw = dw.accessToken || dw.access_token || dw.token;
+                if (tw) { log('✅ Worker OK! Token obtenido.', '#34d399'); log('Recargá la app para ver los datos en tiempo real.', '#60a5fa'); return; }
+                else { log('Campos: ' + Object.keys(dw).join(', '), '#9ca3af'); }
+            }
+        } catch(ew) { log(`Error Worker: ${ew.message}`, '#f87171'); }
     }
 
     // ── Paso 1: probar el proxy Netlify ──
